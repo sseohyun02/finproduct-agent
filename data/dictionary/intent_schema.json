@@ -1,0 +1,135 @@
+{
+  "설명": "HyperCLOVA가 질문을 변환해 뱉는 구조화된 의도 JSON 스키마. 쿼리빌더의 입력 계약. LLM은 이 형식만 채우고, 실제 쿼리 생성은 query_builder.py가 담당(환각 방지).",
+
+  "스키마": {
+    "product_scope": {
+      "설명": "대상 상품군. 질문에서 명시되면 지정, 없으면 자동추론 또는 all",
+      "타입": "enum",
+      "값": ["bond", "etf_domestic", "etf_overseas", "fund", "etf", "all"],
+      "비고": "'etf'는 국내+해외 ETF 통칭. 'all'은 4종 전체"
+    },
+
+    "graph_conditions": {
+      "설명": "그래프(관계) 순회가 필요한 조건들. 없으면 빈 배열. 이게 있으면 SPARQL 경유",
+      "타입": "array",
+      "항목": {
+        "relation": {
+          "타입": "enum",
+          "값": ["holds", "hasTheme", "belongsToGroup", "issuedBy", "sameGroupAs"],
+          "설명": "holds=구성종목보유, hasTheme=테마, belongsToGroup=그룹소속, issuedBy=채권발행, sameGroupAs=같은그룹계열사(4홉용)"
+        },
+        "target": {
+          "타입": "string",
+          "설명": "관계의 대상. 회사명/테마명/그룹명. 예: '삼성전자', '반도체', '신한'"
+        },
+        "direction": {
+          "타입": "enum",
+          "값": ["forward", "reverse"],
+          "기본": "reverse",
+          "설명": "reverse=대상을 기준으로 상품을 찾음(삼성전자를 담은 ETF). forward=상품에서 대상으로"
+        }
+      }
+    },
+
+    "sql_filters": {
+      "설명": "SQL 속성 필터들. concepts.json의 개념 기반. 없으면 빈 배열",
+      "타입": "array",
+      "항목": {
+        "concept": {
+          "타입": "string",
+          "설명": "concepts.json의 개념명. 예: '위험등급', '총보수', '투자지역', '채권분류'"
+        },
+        "operator": {
+          "타입": "enum",
+          "값": ["eq", "gte", "lte", "gt", "lt", "between", "like", "in"],
+          "설명": "비교연산자. eq=같음, gte=이상, like=부분일치, between=범위"
+        },
+        "value": {
+          "타입": "any",
+          "설명": "필터 값. 개념에 따라 숫자/문자/배열. 값매핑 있는 개념은 사용자표현 그대로(주식/미국 등), 코드가 concepts.json으로 변환"
+        }
+      }
+    },
+
+    "sort": {
+      "설명": "정렬. 정성표현(저렴한/수익높은/안전한)이 여기로. 없으면 null",
+      "타입": "object|null",
+      "항목": {
+        "concept": {"타입": "string", "설명": "정렬 기준 개념. 예: '총보수', '수익률', '순자산'"},
+        "order": {"타입": "enum", "값": ["asc", "desc"]},
+        "period": {"타입": "string|null", "설명": "수익률의 경우 기간. 예: '1년', '3개월'"}
+      }
+    },
+
+    "limit": {
+      "설명": "결과 개수 제한. 'top5', '가장~한' 등에서. 기본 10",
+      "타입": "integer",
+      "기본": 10
+    },
+
+    "output_fields": {
+      "설명": "답변에 보여줄 필드. 없으면 기본(상품명+핵심속성). LLM이 질문 맥락에서 추론",
+      "타입": "array",
+      "예": ["상품명", "총보수", "위험등급"]
+    },
+
+    "aggregation": {
+      "설명": "집계 질의 여부. count/교집합 등. 없으면 null",
+      "타입": "object|null",
+      "항목": {
+        "type": {"타입": "enum", "값": ["count", "intersection", "list"]},
+        "설명": "count=개수, intersection=여러 관계의 교집합(반도체ETF 공통보유종목), list=목록"
+      }
+    }
+  },
+
+  "예시": [
+    {
+      "질문": "위험등급 5등급 이상인 채권 보여줘",
+      "의도": {
+        "product_scope": "bond",
+        "graph_conditions": [],
+        "sql_filters": [{"concept": "위험등급", "operator": "gte", "value": 5}],
+        "sort": null, "limit": 10
+      }
+    },
+    {
+      "질문": "삼성전자를 담은 ETF 중에 보수가 낮은 것",
+      "의도": {
+        "product_scope": "etf",
+        "graph_conditions": [{"relation": "holds", "target": "삼성전자", "direction": "reverse"}],
+        "sql_filters": [],
+        "sort": {"concept": "총보수", "order": "asc", "period": null},
+        "limit": 10
+      }
+    },
+    {
+      "질문": "신한금융그룹이 발행한 채권",
+      "의도": {
+        "product_scope": "bond",
+        "graph_conditions": [{"relation": "belongsToGroup", "target": "신한", "direction": "reverse"}],
+        "sql_filters": [], "sort": null, "limit": 10
+      }
+    },
+    {
+      "질문": "반도체 테마 ETF들이 공통으로 담은 종목",
+      "의도": {
+        "product_scope": "etf",
+        "graph_conditions": [{"relation": "hasTheme", "target": "반도체", "direction": "reverse"}],
+        "sql_filters": [],
+        "aggregation": {"type": "intersection"},
+        "limit": 10
+      }
+    },
+    {
+      "질문": "미국에 투자하는 보수 낮은 ETF top5",
+      "의도": {
+        "product_scope": "etf",
+        "graph_conditions": [],
+        "sql_filters": [{"concept": "투자지역", "operator": "eq", "value": "미국"}],
+        "sort": {"concept": "총보수", "order": "asc"},
+        "limit": 5
+      }
+    }
+  ]
+}

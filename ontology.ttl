@@ -1,0 +1,224 @@
+@prefix fin:  <http://mirae-agent.example/ontology#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+#  금융상품 Agent 온톨로지 (2026 미래에셋 AI Festival)
+#  - Class(개념), Property(관계·속성), Constraint(제약)을 정의
+#  - 그래프: 상품·회사·운용사·금융그룹·테마 노드와 그 관계
+#################################################################
+
+### 온톨로지 선언 ###############################################
+fin:MiraeFinancialOntology a owl:Ontology ;
+    rdfs:label "미래에셋 금융상품 Agent 온톨로지"@ko ;
+    rdfs:comment "국내채권·국내ETF·해외ETF·공모펀드 4종 마스터와 외부 관계 데이터를 담는 지식그래프의 스키마"@ko .
+
+#################################################################
+#  1. CLASS (노드 종류)
+#################################################################
+
+### 상품 (최상위) #############################################
+fin:Product a owl:Class ;
+    rdfs:label "금융상품"@ko ;
+    rdfs:comment "채권·ETF·ETN·펀드를 아우르는 최상위 상품 개념"@ko .
+
+### 상품 하위 유형 (서로 배타적) ##############################
+fin:ETF a owl:Class ;
+    rdfs:subClassOf fin:Product ;
+    rdfs:label "상장지수펀드(ETF)"@ko ;
+    owl:disjointWith fin:ETN, fin:Fund, fin:Bond .
+
+fin:ETN a owl:Class ;
+    rdfs:subClassOf fin:Product ;
+    rdfs:label "상장지수증권(ETN)"@ko .
+
+fin:Fund a owl:Class ;
+    rdfs:subClassOf fin:Product ;
+    rdfs:label "공모펀드"@ko .
+
+fin:Bond a owl:Class ;
+    rdfs:subClassOf fin:Product ;
+    rdfs:label "채권"@ko .
+
+### 회사 (발행사 + 구성종목 통합) #############################
+fin:Company a owl:Class ;
+    rdfs:label "회사"@ko ;
+    rdfs:comment "채권 발행사이자 ETF 구성종목이 되는 기업. 주식과 채권을 잇는 통합 노드"@ko .
+
+### 보유내역 (ETF와 회사 사이의 '점' 노드) ##################
+# ETF가 어떤 회사를 '몇 % 담았는지'를 담는 중간 노드.
+# 관계(holds)에 비중 값을 붙일 수 없어, 관계를 노드로 승격시킨 것.
+# 예: TIGER반도체 --hasHolding--> [보유내역] --ofCompany--> 삼성전자, 비중 25%
+fin:Holding a owl:Class ;
+    rdfs:label "보유내역"@ko ;
+    rdfs:comment "ETF가 특정 회사를 보유한 한 건의 내역. 비중 값을 담기 위한 중간 노드"@ko .
+
+### 운용사 ###################################################
+fin:AssetManager a owl:Class ;
+    rdfs:label "운용사"@ko ;
+    rdfs:comment "ETF·펀드를 운용하는 자산운용사 또는 ETN 발행 증권사"@ko .
+
+### 금융그룹 #################################################
+fin:Group a owl:Class ;
+    rdfs:label "금융그룹"@ko ;
+    rdfs:comment "발행사가 소속된 상위 기업집단·금융그룹 (예: 신한금융그룹)"@ko .
+
+### 테마 ####################################################
+fin:Theme a owl:Class ;
+    rdfs:label "테마"@ko ;
+    rdfs:comment "상품이 속하는 투자 테마 (예: 반도체, 2차전지, AI). 상품명에서 추출"@ko .
+
+#################################################################
+#  2. OBJECT PROPERTY (노드끼리 잇는 관계)
+#################################################################
+
+### 보유(지름길): 상품(ETF) → 회사(구성종목) #################
+# 비중이 필요 없는 단순 질문("삼성전자 담은 ETF 목록")용 직접 연결.
+# 비중까지 필요하면 아래 hasHolding→ofCompany 경로를 사용.
+fin:holds a owl:ObjectProperty ;
+    rdfs:label "보유"@ko ;
+    rdfs:comment "ETF가 구성종목으로 이 회사의 주식을 보유(비중 없는 지름길 연결)"@ko ;
+    rdfs:domain fin:Product ;
+    rdfs:range  fin:Company .
+
+### 보유내역 연결: 상품(ETF) → 보유내역 노드 ################
+fin:hasHolding a owl:ObjectProperty ;
+    rdfs:label "보유내역"@ko ;
+    rdfs:comment "ETF가 가진 개별 보유내역(회사+비중) 노드로 연결"@ko ;
+    rdfs:domain fin:Product ;
+    rdfs:range  fin:Holding .
+
+### 보유내역 → 회사 ##########################################
+fin:ofCompany a owl:ObjectProperty ;
+    rdfs:label "보유대상회사"@ko ;
+    rdfs:comment "이 보유내역이 가리키는 회사(구성종목)"@ko ;
+    rdfs:domain fin:Holding ;
+    rdfs:range  fin:Company .
+
+### 발행: 상품(채권) → 회사(발행사) ##########################
+fin:issuedBy a owl:ObjectProperty ;
+    rdfs:label "발행사"@ko ;
+    rdfs:comment "이 채권을 발행한 회사"@ko ;
+    rdfs:domain fin:Bond ;
+    rdfs:range  fin:Company .
+
+### 소속: 회사 → 금융그룹 ####################################
+fin:belongsToGroup a owl:ObjectProperty ;
+    rdfs:label "그룹소속"@ko ;
+    rdfs:comment "이 회사가 소속된 금융그룹·기업집단"@ko ;
+    rdfs:domain fin:Company ;
+    rdfs:range  fin:Group .
+
+### 운용: 상품 → 운용사 ######################################
+fin:managedBy a owl:ObjectProperty ;
+    rdfs:label "운용사"@ko ;
+    rdfs:comment "이 상품을 운용하는 운용사"@ko ;
+    rdfs:domain fin:Product ;
+    rdfs:range  fin:AssetManager .
+
+### 테마: 상품 → 테마 ########################################
+fin:hasTheme a owl:ObjectProperty ;
+    rdfs:label "테마"@ko ;
+    rdfs:comment "이 상품이 속하는 투자 테마"@ko ;
+    rdfs:domain fin:Product ;
+    rdfs:range  fin:Theme .
+
+#################################################################
+#  3. DATATYPE PROPERTY (노드에 딸린 속성값)
+#################################################################
+
+### 공통 속성 ###############################################
+fin:productName a owl:DatatypeProperty ;
+    rdfs:label "상품명"@ko ;
+    rdfs:domain fin:Product ; rdfs:range xsd:string .
+
+fin:riskGrade a owl:DatatypeProperty ;
+    rdfs:label "위험등급"@ko ;
+    rdfs:comment "1(매우높은위험)~6(매우낮은위험). 해외ETF는 없음"@ko ;
+    rdfs:domain fin:Product ; rdfs:range xsd:integer .
+
+fin:region a owl:DatatypeProperty ;
+    rdfs:label "투자지역"@ko ;
+    rdfs:domain fin:Product ; rdfs:range xsd:string .
+
+fin:assetType a owl:DatatypeProperty ;
+    rdfs:label "자산군"@ko ;
+    rdfs:domain fin:Product ; rdfs:range xsd:string .
+
+fin:netAsset a owl:DatatypeProperty ;
+    rdfs:label "순자산"@ko ;
+    rdfs:domain fin:Product ; rdfs:range xsd:decimal .
+
+### ETF·펀드 속성 ###########################################
+fin:expenseRatio a owl:DatatypeProperty ;
+    rdfs:label "총보수"@ko ;
+    rdfs:comment "연 보수율(%). ETF에만 존재"@ko ;
+    rdfs:domain fin:Product ; rdfs:range xsd:decimal .
+
+### 채권 속성 ###############################################
+fin:maturityDate a owl:DatatypeProperty ;
+    rdfs:label "만기일"@ko ;
+    rdfs:domain fin:Bond ; rdfs:range xsd:date .
+
+fin:couponRate a owl:DatatypeProperty ;
+    rdfs:label "표면금리"@ko ;
+    rdfs:domain fin:Bond ; rdfs:range xsd:decimal .
+
+fin:duration a owl:DatatypeProperty ;
+    rdfs:label "듀레이션"@ko ;
+    rdfs:domain fin:Bond ; rdfs:range xsd:decimal .
+
+fin:bondCreditGrade a owl:DatatypeProperty ;
+    rdfs:label "채권신용등급"@ko ;
+    rdfs:domain fin:Bond ; rdfs:range xsd:string .
+
+fin:bondClass a owl:DatatypeProperty ;
+    rdfs:label "채권분류"@ko ;
+    rdfs:comment "국공채/특수채/회사채"@ko ;
+    rdfs:domain fin:Bond ; rdfs:range xsd:string .
+
+### 보유비중 (보유내역 노드에 딸린 값) ######################
+# 결정: 관계에 값을 붙이는 문제를 중간노드(Holding)로 해결.
+# 비중은 Holding 노드의 속성으로 저장한다.
+fin:weight a owl:DatatypeProperty ;
+    rdfs:label "보유비중"@ko ;
+    rdfs:comment "ETF가 해당 종목을 보유한 비중(%). Holding 노드에 붙음"@ko ;
+    rdfs:domain fin:Holding ;
+    rdfs:range xsd:decimal .
+
+#################################################################
+#  4. CONSTRAINT (제약: SHACL)  — 데이터 무결성 검증
+#################################################################
+
+### 위험등급은 1~6만 허용 ####################################
+fin:RiskGradeShape a sh:NodeShape ;
+    sh:targetClass fin:Product ;
+    sh:property [
+        sh:path fin:riskGrade ;
+        sh:minInclusive 1 ;
+        sh:maxInclusive 6 ;
+        sh:datatype xsd:integer ;
+        sh:message "위험등급은 1~6 사이 정수여야 합니다"@ko
+    ] .
+
+### ETF는 운용사를 정확히 1개 가져야 함 #####################
+fin:ETFManagerShape a sh:NodeShape ;
+    sh:targetClass fin:ETF ;
+    sh:property [
+        sh:path fin:managedBy ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "ETF는 운용사를 정확히 1개 가져야 합니다"@ko
+    ] .
+
+### 채권은 발행사를 최소 1개 가져야 함 ######################
+fin:BondIssuerShape a sh:NodeShape ;
+    sh:targetClass fin:Bond ;
+    sh:property [
+        sh:path fin:issuedBy ;
+        sh:minCount 1 ;
+        sh:message "채권은 발행사를 최소 1개 가져야 합니다"@ko
+    ] .

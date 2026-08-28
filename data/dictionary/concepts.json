@@ -1,0 +1,914 @@
+{
+  "자산군": {
+    "설명": "상품이 투자하는 자산의 종류",
+    "컬럼": {
+      "bond": null,
+      "etf_domestic": "wu_inv_ast_type",
+      "etf_overseas": "wu_inv_ast_type",
+      "fund": "asset_type_std"
+    },
+    "값매핑": {
+      "주식": {
+        "etf_domestic": [
+          "주식"
+        ],
+        "etf_overseas": [
+          "Equity"
+        ],
+        "fund": [
+          "주식형"
+        ]
+      },
+      "채권": {
+        "etf_domestic": [
+          "채권"
+        ],
+        "etf_overseas": [
+          "Bond"
+        ],
+        "fund": [
+          "채권형"
+        ]
+      },
+      "원자재": {
+        "etf_domestic": [
+          "원자재"
+        ],
+        "etf_overseas": [
+          "Commodity"
+        ]
+      },
+      "단기금융": {
+        "etf_domestic": [
+          "단기자금"
+        ],
+        "etf_overseas": [
+          "Money Market"
+        ],
+        "fund": [
+          "MMF"
+        ]
+      }
+    },
+    "세부값": {
+      "etf_domestic": [
+        "혼합자산",
+        "통화",
+        "부동산",
+        "기타"
+      ],
+      "etf_overseas": [
+        "Mixed Assets",
+        "Alternatives"
+      ],
+      "fund": [
+        "혼합자산",
+        "주식혼합",
+        "채권혼합",
+        "재간접",
+        "파생형",
+        "특별자산",
+        "임대형",
+        "대출형"
+      ]
+    },
+    "없을때": {
+      "bond": "채권은 자산군 개념 없음. 채권분류(국공채/회사채)로 대응"
+    }
+  },
+  "위험등급": {
+    "설명": "상품의 종합 위험도. 1~6등급.",
+    "방향": "숫자가 낮을수록 위험 (1=매우 높은 위험, 6=매우 낮은 위험)",
+    "컬럼": {
+      "bond": "risk_grade_num",
+      "etf_domestic": "risk_grade_num",
+      "etf_overseas": null,
+      "fund": "risk_grade_num"
+    },
+    "유효값": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "등급명칭": {
+      "1": "매우 높은 위험",
+      "2": "높은 위험",
+      "3": "다소 높은 위험",
+      "4": "보통 위험",
+      "5": "낮은 위험",
+      "6": "매우 낮은 위험"
+    },
+    "정성표현": {
+      "안전한": {
+        "유형": "임계값",
+        "조건": "risk_grade_num >= 5",
+        "설명": "위험등급 5~6등급(낮은 위험/매우 낮은 위험)",
+        "답변문구": "위험등급 5등급 이상을 안전한 상품으로 보고 검색했습니다"
+      },
+      "위험한": {
+        "유형": "임계값",
+        "조건": "risk_grade_num <= 2",
+        "설명": "위험등급 1~2등급(매우 높은 위험/높은 위험)",
+        "답변문구": "위험등급 2등급 이하를 위험한 상품으로 보고 검색했습니다"
+      }
+    },
+    "없을때": {
+      "etf_overseas": "해외ETF는 위험등급 데이터가 제공되지 않습니다"
+    }
+  },
+  "운용사": {
+    "설명": "ETF 운용 자산운용사 / ETN 발행 증권사",
+    "컬럼": {
+      "bond": null,
+      "etf_domestic": "fund_mgmt_co_std",
+      "etf_overseas": "cu_fund_mgmt_co",
+      "fund": null
+    },
+    "별칭": {
+      "삼성자산운용": [
+        "삼성자산운용",
+        "KODEX"
+      ],
+      "삼성액티브자산운용": [
+        "삼성액티브자산운용",
+        "삼성액티브",
+        "KoAct"
+      ],
+      "삼성증권": [
+        "삼성증권",
+        "삼성증권(주)",
+        "삼성증권 주식회사"
+      ],
+      "미래에셋자산운용": [
+        "미래에셋자산운용",
+        "미래에셋",
+        "TIGER"
+      ],
+      "미래에셋증권": [
+        "미래에셋증권",
+        "미래에셋증권 주식회사",
+        "미래에셋증권(주)"
+      ],
+      "KB자산운용": [
+        "KB자산운용",
+        "RISE",
+        "KBSTAR"
+      ],
+      "KB증권": [
+        "KB증권",
+        "KB증권(주)"
+      ],
+      "한국투자신탁운용": [
+        "한국투자신탁운용",
+        "ACE",
+        "KINDEX"
+      ],
+      "한국투자증권": [
+        "한국투자증권",
+        "한국투자증권(주)"
+      ],
+      "한화자산운용": [
+        "한화자산운용",
+        "PLUS",
+        "ARIRANG"
+      ],
+      "신한자산운용": [
+        "신한자산운용",
+        "SOL"
+      ],
+      "신한투자증권": [
+        "신한투자증권",
+        "신한투자증권 주식회사"
+      ],
+      "키움투자자산운용": [
+        "키움투자자산운용",
+        "KIWOOM",
+        "KOSEF"
+      ],
+      "키움증권": [
+        "키움증권",
+        "키움증권(주)"
+      ],
+      "NH아문디자산운용": [
+        "NH아문디자산운용",
+        "NH-Amundi",
+        "HANARO"
+      ],
+      "NH투자증권": [
+        "NH투자증권",
+        "엔에이치투자증권(주)"
+      ],
+      "하나증권": [
+        "하나증권",
+        "하나증권주식회사"
+      ],
+      "대신증권": [
+        "대신증권",
+        "대신증권(주)"
+      ],
+      "메리츠증권": [
+        "메리츠증권",
+        "메리츠증권 주식회사"
+      ],
+      "현대자산운용": [
+        "현대자산운용",
+        "UNICORN"
+      ]
+    },
+    "계열그룹": {
+      "삼성": [
+        "삼성자산운용",
+        "삼성액티브자산운용",
+        "삼성증권"
+      ],
+      "미래에셋": [
+        "미래에셋자산운용",
+        "미래에셋증권"
+      ],
+      "KB": [
+        "KB자산운용",
+        "KB증권"
+      ],
+      "한국투자": [
+        "한국투자신탁운용",
+        "한국투자증권"
+      ],
+      "한화": [
+        "한화자산운용"
+      ],
+      "신한": [
+        "신한자산운용",
+        "신한투자증권"
+      ],
+      "키움": [
+        "키움투자자산운용",
+        "키움증권"
+      ],
+      "NH": [
+        "NH아문디자산운용",
+        "NH투자증권"
+      ],
+      "하나": [
+        "하나증권"
+      ],
+      "대신": [
+        "대신증권"
+      ],
+      "현대": [
+        "현대자산운용"
+      ]
+    },
+    "없을때": {
+      "bond": "채권은 발행사(PD_PBCM) 개념. 운용사 아님",
+      "fund": "펀드 운용사는 기관코드로만 있어 회사명 미상"
+    },
+    "해외별칭": {
+      "BlackRock Fund Advisors": [
+        "BlackRock",
+        "블랙록",
+        "iShares",
+        "아이셰어즈"
+      ],
+      "SSGA Funds Management Inc": [
+        "State Street",
+        "스테이트스트리트",
+        "SPDR",
+        "SSGA"
+      ],
+      "Invesco Capital Management LLC": [
+        "Invesco",
+        "인베스코",
+        "QQQ"
+      ],
+      "Vanguard Capital Management, LLC": [
+        "Vanguard",
+        "뱅가드"
+      ],
+      "Vanguard Portfolio Management LLC": [
+        "Vanguard",
+        "뱅가드"
+      ],
+      "First Trust Advisors LP": [
+        "First Trust",
+        "퍼스트트러스트"
+      ],
+      "ProShare Advisors LLC": [
+        "ProShares",
+        "프로셰어즈"
+      ],
+      "Global X Management Co LLC": [
+        "Global X",
+        "글로벌엑스"
+      ],
+      "WisdomTree Asset Management Inc": [
+        "WisdomTree",
+        "위즈덤트리"
+      ],
+      "JP Morgan Investment Management Inc": [
+        "JP Morgan",
+        "JPMorgan",
+        "제이피모건"
+      ],
+      "Fidelity Management & Research Company LLC": [
+        "Fidelity",
+        "피델리티"
+      ],
+      "Van Eck Associates Corp": [
+        "VanEck",
+        "Van Eck",
+        "반에크"
+      ],
+      "Goldman Sachs Asset Management LP": [
+        "Goldman Sachs",
+        "골드만삭스"
+      ],
+      "Dimensional Fund Advisors LP": [
+        "Dimensional",
+        "디멘셔널",
+        "DFA"
+      ],
+      "Schwab": [
+        "Schwab",
+        "찰스슈왑",
+        "Charles Schwab"
+      ],
+      "Direxion": [
+        "Direxion",
+        "디렉시온"
+      ]
+    },
+    "해외별칭_주의": "해외ETF 운용사는 정식 법인명(BlackRock Fund Advisors 등)으로 저장됨. 사용자는 짧은 이름(BlackRock)이나 브랜드(iShares)로 부르므로 별칭으로 이어줌. Vanguard처럼 한 회사가 여러 법인명으로 갈리면 모두 매칭. 상위 빈도 운용사 위주이며, 목록에 없는 운용사는 정식명 부분일치로 검색."
+  },
+  "수익률": {
+    "설명": "상품의 수익률. 기간별로 제공.",
+    "기간별컬럼": {
+      "1일": {
+        "etf_domestic": "du_er_1d",
+        "etf_overseas": "du_er_1d"
+      },
+      "1주": {
+        "fund": "fd_wk1_ern_r"
+      },
+      "1개월": {
+        "etf_domestic": "du_er_1m",
+        "fund": "fd_mm1_ern_r"
+      },
+      "3개월": {
+        "etf_domestic": "du_er_3m",
+        "fund": "fd_mm3_ern_r"
+      },
+      "6개월": {
+        "etf_domestic": "du_er_6m",
+        "fund": "fd_mm6_ern_r"
+      },
+      "1년": {
+        "etf_domestic": "du_er_1y",
+        "fund": "fd_yr1_ern_r"
+      },
+      "2년": {
+        "fund": "fd_yr2_ern_r"
+      },
+      "3년": {
+        "fund": "fd_yr3_ern_r"
+      },
+      "5년": {
+        "fund": "fd_yr5_ern_r"
+      },
+      "연초대비": {
+        "etf_domestic": "du_er_ytd"
+      }
+    },
+    "채권수익률": {
+      "컬럼": {
+        "bond": "BUY_YIELD"
+      },
+      "주의": "채권 매수수익률은 만기까지 보유 시 받는 연수익률로, ETF·펀드의 가격상승률과 성격이 다름. 서로 직접 비교하지 말 것"
+    },
+    "정성표현": {
+      "수익높은": {
+        "유형": "정렬",
+        "정렬": "수익률 내림차순",
+        "설명": "해당 기간 수익률이 높은 순"
+      }
+    },
+    "없을때": {
+      "etf_overseas": "해외ETF는 1일 수익률만 제공. 장기 수익률 없음"
+    }
+  },
+  "총보수": {
+    "설명": "운용사에 매년 내는 수수료율(%). ETF에만 있음.",
+    "컬럼": {
+      "bond": null,
+      "etf_domestic": "cu_charge_rt",
+      "etf_overseas": "cu_charge_rt",
+      "fund": null
+    },
+    "정성표현": {
+      "저렴한": {
+        "유형": "정렬",
+        "정렬": "총보수 오름차순",
+        "설명": "보수가 낮은 순"
+      },
+      "비싼": {
+        "유형": "정렬",
+        "정렬": "총보수 내림차순",
+        "설명": "보수가 높은 순"
+      }
+    },
+    "없을때": {
+      "bond": "채권은 보수 개념 없음. 표면금리(SRFC_IRT)가 그 자리",
+      "fund": "공모펀드는 보수 데이터가 제공되지 않음"
+    }
+  },
+  "순자산": {
+    "설명": "상품의 규모. 상품에 담긴 자산의 총 가치.",
+    "컬럼": {
+      "bond": "ISU_BAL_AMT",
+      "etf_domestic": "du_last_aum",
+      "etf_overseas": "du_last_aum",
+      "fund": "fd_nast_suma"
+    },
+    "테이블별_의미": {
+      "bond": "발행잔액(시장에 발행된 총액)",
+      "etf_domestic": "순자산총액(AUM)",
+      "etf_overseas": "순자산총액(AUM)",
+      "fund": "펀드 순자산"
+    },
+    "정성표현": {
+      "규모큰": {
+        "유형": "정렬",
+        "정렬": "순자산 내림차순",
+        "설명": "규모가 큰 순"
+      },
+      "규모작은": {
+        "유형": "정렬",
+        "정렬": "순자산 오름차순",
+        "설명": "규모가 작은 순"
+      }
+    }
+  },
+  "통화": {
+    "설명": "상품의 표시/거래 통화.",
+    "컬럼": {
+      "bond": "curr_cd_std",
+      "etf_domestic": "pd_curr_cd",
+      "etf_overseas": "pd_trd_ccy",
+      "fund": "curr_cd"
+    },
+    "값매핑": {
+      "원화": {
+        "bond": [
+          "KRW"
+        ],
+        "etf_domestic": [
+          "CURR_CD_KRW"
+        ],
+        "fund": [
+          "KRW"
+        ]
+      },
+      "달러": {
+        "bond": [
+          "USD"
+        ],
+        "etf_overseas": [
+          "USD"
+        ]
+      },
+      "유로": {
+        "bond": [
+          "EUR"
+        ]
+      },
+      "엔화": {
+        "bond": [
+          "JPY"
+        ]
+      }
+    },
+    "없을때": {
+      "설명": "국내ETF·펀드는 대부분 원화(KRW), 해외ETF는 대부분 달러(USD)"
+    }
+  },
+  "상품명": {
+    "설명": "상품 이름. 검색의 기본 대상.",
+    "컬럼": {
+      "bond": "PD_NM",
+      "etf_domestic": "pd_nm",
+      "etf_overseas": "pd_nm",
+      "fund": "itm_nm"
+    },
+    "약어컬럼": {
+      "bond": "PD_ABRV_NM",
+      "etf_domestic": "pd_abrv_nm",
+      "etf_overseas": "pd_abrv_nm",
+      "fund": "itm_abrv_nm"
+    },
+    "검색방식": "부분일치(LIKE). 정확명 몰라도 키워드 포함 검색",
+    "주의": "상품명에 없는 것도 기초지수(cu_base_index)·자산군 등 다른 컬럼에 있을 수 있음(값 링킹)"
+  },
+  "상품유형": {
+    "설명": "상품의 종류 구분.",
+    "컬럼": {
+      "etf_domestic": "pd_grp_no",
+      "fund": "or_attr_desc"
+    },
+    "값매핑": {
+      "ETF": {
+        "etf_domestic": [
+          "ETF"
+        ]
+      },
+      "ETN": {
+        "etf_domestic": [
+          "ETN"
+        ]
+      }
+    },
+    "상품군구분": {
+      "채권": "bond 테이블",
+      "국내ETF/ETN": "etf_domestic 테이블",
+      "해외ETF": "etf_overseas 테이블",
+      "공모펀드": "fund 테이블"
+    },
+    "없을때": {
+      "설명": "테이블 자체가 상품군을 구분. ETF/ETN만 한 테이블에 섞여 pd_grp_no로 구분"
+    }
+  },
+  "투자지역": {
+    "설명": "상품이 투자하는 대상 지역. 발행국이 아니라 투자처.",
+    "컬럼": {
+      "bond": null,
+      "etf_domestic": "wu_inv_rgn",
+      "etf_overseas": "wu_inv_rgn",
+      "fund": "fd_ivst_rgn_desc"
+    },
+    "그룹": {
+      "미국": {
+        "etf_domestic": [
+          "미국"
+        ],
+        "etf_overseas": [
+          "United States of America"
+        ]
+      },
+      "북미": {
+        "etf_domestic": [
+          "남미북미"
+        ],
+        "etf_overseas": [
+          "United States of America",
+          "Canada",
+          "Mexico",
+          "North America"
+        ],
+        "fund": [
+          "남미/북미"
+        ]
+      },
+      "유럽": {
+        "etf_domestic": [
+          "유럽"
+        ],
+        "etf_overseas": [
+          "Europe",
+          "EuroZone",
+          "United Kingdom",
+          "Switzerland",
+          "Germany",
+          "Norway",
+          "Greece",
+          "Austria",
+          "Italy",
+          "Poland",
+          "Finland",
+          "Ireland",
+          "Belgium",
+          "Iceland",
+          "Spain",
+          "France",
+          "Netherlands",
+          "Sweden",
+          "Denmark",
+          "Turkey"
+        ],
+        "fund": [
+          "유럽"
+        ]
+      },
+      "아시아": {
+        "etf_domestic": [
+          "아시아",
+          "중국",
+          "일본",
+          "인도",
+          "베트남"
+        ],
+        "etf_overseas": [
+          "China",
+          "Japan",
+          "India",
+          "Korea",
+          "Taiwan",
+          "Vietnam",
+          "Indonesia",
+          "Greater China",
+          "Hong Kong",
+          "Malaysia",
+          "Singapore",
+          "Philippines",
+          "Thailand",
+          "Asia Pacific",
+          "Asia Pacific ex Japan",
+          "ASEAN",
+          "New Zealand",
+          "Australia"
+        ],
+        "fund": [
+          "아시아"
+        ]
+      },
+      "중국": {
+        "etf_domestic": [
+          "중국"
+        ],
+        "etf_overseas": [
+          "China",
+          "Greater China"
+        ]
+      },
+      "일본": {
+        "etf_domestic": [
+          "일본"
+        ],
+        "etf_overseas": [
+          "Japan"
+        ]
+      },
+      "인도": {
+        "etf_domestic": [
+          "인도"
+        ],
+        "etf_overseas": [
+          "India"
+        ]
+      },
+      "중남미": {
+        "etf_domestic": [
+          "남미북미"
+        ],
+        "etf_overseas": [
+          "Brazil",
+          "Latin America",
+          "Peru",
+          "Argentina",
+          "Colombia",
+          "Chile",
+          "Mexico"
+        ],
+        "fund": [
+          "남미/북미"
+        ]
+      },
+      "중동아프리카": {
+        "etf_overseas": [
+          "Israel",
+          "Saudi Arabia",
+          "Qatar",
+          "United Arab Emirates",
+          "Africa",
+          "Kuwait",
+          "South Africa"
+        ],
+        "fund": [
+          "중동/아프리카"
+        ]
+      },
+      "글로벌": {
+        "etf_domestic": [
+          "글로벌"
+        ],
+        "etf_overseas": [
+          "Global",
+          "Global Ex US"
+        ],
+        "fund": [
+          "글로벌"
+        ]
+      },
+      "이머징": {
+        "etf_domestic": [
+          "이머징브릭스"
+        ],
+        "etf_overseas": [
+          "Global Emerging Markets",
+          "BRIC",
+          "Greater China",
+          "China",
+          "India",
+          "Brazil",
+          "Taiwan",
+          "Korea",
+          "Indonesia",
+          "Malaysia",
+          "Philippines",
+          "Thailand",
+          "Mexico",
+          "South Africa",
+          "Turkey",
+          "Colombia",
+          "Poland",
+          "Peru",
+          "Chile",
+          "Greece",
+          "Saudi Arabia",
+          "Qatar",
+          "United Arab Emirates",
+          "Kuwait"
+        ],
+        "fund": [
+          "이머징/브릭스"
+        ],
+        "기준": "MSCI 신흥국 지수 24개국 기준",
+        "답변문구": "MSCI 기준으로 한국·중동 산유국(사우디·카타르 등)·그리스·폴란드 등도 신흥국에 포함해 검색했습니다"
+      },
+      "국내": {
+        "etf_domestic": [
+          "국내"
+        ],
+        "fund": [
+          "국내"
+        ]
+      }
+    },
+    "국내한정": {
+      "설명": "개별 국가(France, Thailand 등)는 데이터 값 그대로 검색. 별도 별칭 없음. 데이터에 없는 국가는 검색 불가",
+      "예": "'프랑스 상품' -> wu_inv_rgn='France' 직접 매칭"
+    },
+    "없을때": {
+      "bond": "채권의 PD_CTRY_CD는 발행국(투자처 아님). 투자지역 개념과 다름"
+    }
+  },
+  "신용등급": {
+    "설명": "채권의 신용도(원리금 상환 확실성). 채권 전용. AAA(최고)~D(최저).",
+    "종류": {
+      "발행사신용등급": {
+        "컬럼": {
+          "bond": "issuer_credit_grade"
+        },
+        "설명": "발행 회사 전체의 신용도(기업신용등급). 여러 평가사가 갈리면 가장 보수적(낮은) 등급 채택",
+        "갈림여부": "issuer_credit_split(true면 평가사 간 이견 있음)"
+      },
+      "채권신용등급": {
+        "컬럼": {
+          "bond": "bond_credit_grade"
+        },
+        "설명": "이 채권 자체의 신용도. 후순위채 등은 발행사보다 낮음. 표기 정규화됨(AA0->AA)",
+        "순위컬럼": "bond_credit_rank(숫자 작을수록 상위=안전, AAA=1)"
+      }
+    },
+    "주의": "발행사신용등급과 채권신용등급은 공식적으로 다른 평가. 통합하지 말고 구분해서 제시",
+    "정성표현": {
+      "우량한": {
+        "유형": "임계값",
+        "조건": "bond_credit_rank <= 3",
+        "설명": "AA등급 이상(AAA/AA+/AA)",
+        "답변문구": "AA등급 이상을 우량 등급으로 보고 검색했습니다"
+      }
+    },
+    "없을때": {
+      "etf_domestic": "신용등급은 채권 전용 개념",
+      "etf_overseas": "신용등급은 채권 전용 개념",
+      "fund": "신용등급은 채권 전용 개념"
+    }
+  },
+  "만기": {
+    "설명": "채권의 원금 상환 시점. 채권 전용.",
+    "컬럼": {
+      "bond_만기일": "MAT_DT_date",
+      "bond_잔존일수": "REMAINING_DAYS"
+    },
+    "정성표현": {
+      "만기임박": {
+        "유형": "정렬",
+        "정렬": "잔존일수 오름차순",
+        "설명": "만기가 가까운 순(잔존일수 적은 순)"
+      },
+      "장기": {
+        "유형": "정렬",
+        "정렬": "잔존일수 내림차순",
+        "설명": "만기가 먼 순(장기 채권)"
+      }
+    },
+    "기간질의": {
+      "설명": "'2027년 만기 채권' 같은 질의는 MAT_DT_date로 연/월 필터",
+      "예": "MAT_DT_date BETWEEN '2027-01-01' AND '2027-12-31'"
+    },
+    "없을때": {
+      "etf_domestic": "만기는 채권 전용(ETF는 만기 없이 계속 운용)",
+      "fund": "만기는 채권 전용"
+    }
+  },
+  "표면금리": {
+    "설명": "채권이 약속한 고정 이자율(쿠폰). 액면가 기준 매년 지급. 채권 전용.",
+    "컬럼": {
+      "bond": "SRFC_IRT"
+    },
+    "주의": "표면금리(약속된 고정 이자)와 매수수익률(BUY_YIELD, 실제 시장 수익률)은 다름",
+    "정성표현": {
+      "고금리": {
+        "유형": "정렬",
+        "정렬": "표면금리 내림차순",
+        "설명": "표면금리 높은 순"
+      },
+      "저금리": {
+        "유형": "정렬",
+        "정렬": "표면금리 오름차순",
+        "설명": "표면금리 낮은 순"
+      }
+    },
+    "없을때": {
+      "etf_domestic": "표면금리는 채권 전용",
+      "fund": "표면금리는 채권 전용"
+    }
+  },
+  "듀레이션": {
+    "설명": "채권의 금리 민감도. 클수록 시장금리 변화에 가격이 크게 움직임. 채권 전용.",
+    "컬럼": {
+      "bond": "DUR"
+    },
+    "정성표현": {
+      "안정적": {
+        "유형": "정렬",
+        "정렬": "듀레이션 오름차순",
+        "설명": "듀레이션 낮은 순(금리 변동에 덜 민감)"
+      },
+      "민감한": {
+        "유형": "정렬",
+        "정렬": "듀레이션 내림차순",
+        "설명": "듀레이션 높은 순(금리 변동에 민감)"
+      }
+    },
+    "없을때": {
+      "etf_domestic": "듀레이션은 채권 전용",
+      "fund": "듀레이션은 채권 전용"
+    }
+  },
+  "발행사": {
+    "설명": "채권을 발행한 주체와 국가. 채권 전용. (ETF·펀드의 운용사와 다른 개념)",
+    "컬럼": {
+      "bond_발행사": "PD_PBCM",
+      "bond_발행국": "PD_CTRY_CD"
+    },
+    "발행국주의": "PD_CTRY_CD는 발행국(투자지역 아님). KR=국내, XS=국제채권",
+    "검색방식": "발행사는 부분일치(LIKE). 예: '삼성' -> PD_PBCM LIKE '%삼성%'",
+    "없을때": {
+      "etf_domestic": "채권 발행사 개념. ETF는 운용사 참고",
+      "fund": "채권 발행사 개념"
+    }
+  },
+  "채권분류": {
+    "설명": "채권의 종류. 발행 주체에 따라 구분. 안전도: 국공채 > 특수채 > 회사채.",
+    "컬럼": {
+      "bond_대분류": "STD_PD_MCLS_NM",
+      "bond_소분류": "STD_PD_SCLS_NM"
+    },
+    "값매핑": {
+      "국공채": {
+        "bond": [
+          "국공채",
+          "개인투자용국채"
+        ]
+      },
+      "특수채": {
+        "bond": [
+          "특수채"
+        ]
+      },
+      "회사채": {
+        "bond": [
+          "회사채",
+          "외화채권-회사채"
+        ]
+      },
+      "금융채": {
+        "bond": [
+          "외화채권-금융채"
+        ]
+      }
+    },
+    "소분류예시": {
+      "국고채": "STD_PD_SCLS_NM='국고채'",
+      "공사채": "STD_PD_SCLS_NM='공사채'",
+      "은행채": "STD_PD_SCLS_NM='은행채'"
+    },
+    "안전도": "국공채(국가/공공기관 발행, 가장 안전) > 특수채(특별법 기관) > 회사채(기업, 상대적 위험)",
+    "없을때": {
+      "etf_domestic": "채권분류는 채권 전용",
+      "fund": "채권분류는 채권 전용"
+    }
+  }
+}

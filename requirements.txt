@@ -1,0 +1,9 @@
+openai
+python-dotenv
+requests
+fastapi
+uvicorn
+duckdb
+rdflib
+pandas
+openpyxl

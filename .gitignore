@@ -1,0 +1,19 @@
+# 데이터
+data/raw/
+data/processed/
+*.duckdb
+
+# 환경변수·비밀키
+.env
+fin-key.pem
+
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+fin/
+
+# OS
+.DS_Store
