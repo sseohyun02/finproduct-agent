@@ -37,6 +37,42 @@ def normalize_name(raw: str) -> str:
     return s.lower()
 
 
+# 채권 발행사(한글 발음표기) <-> 회사노드(영문 브랜드) 접두 통일 테이블.
+# 예: 발행사 '에스케이하이닉스' vs 노드 'SK하이닉스' -> 키 불일치로 issuedBy 누락됨.
+# 접두 위치에서만 치환(회사명 중간 음절 오변환 방지). 긴 키 우선 매칭.
+BRAND_PREFIX_MAP = {
+    "에스케이씨": "SKC", "에스케이": "SK",
+    "엘지": "LG", "엘엑스": "LX", "엘에스": "LS",
+    "케이비": "KB", "케이티앤지": "KT&G", "케이티": "KT", "케이지": "KG", "케이씨씨": "KCC",
+    "지에스": "GS", "씨제이": "CJ", "디엘": "DL", "디비": "DB",
+    "에이치디현대": "HD현대", "에이치디": "HD", "에이치엘": "HL",
+    "에이치엠엠": "HMM", "에이치에스효성": "HS효성", "에이케이": "AK",
+    "포스코": "POSCO", "비엔케이": "BNK", "제이비": "JB", "에스비에스": "SBS",
+    "에스오일": "S-OIL", "에스엔티": "SNT", "엔에이치엔": "NHN",
+    "비지에프": "BGF", "오씨아이": "OCI",
+}
+
+
+def normalize_for_match(raw: str) -> str:
+    """
+    발행사<->회사 매칭 전용 정규화. normalize_name에 '브랜드 접두 통일'을 덧댐.
+    한글 발음표기(에스케이/씨제이/포스코...)를 영문 브랜드(SK/CJ/POSCO)로 접두 치환
+    한 뒤 기존 normalize_name을 적용해 양측 키를 일치시킨다.
+    표시용 아님. build_bond_companies 매칭 인덱스/조회 양쪽에서 동일하게 써야 정합.
+    """
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    # 법인격 먼저 제거(접두 판정이 원명 첫 음절부터 되도록)
+    s = re.sub(r"\(주\)|주식회사|㈜|\(유\)|유한회사", "", s).strip()
+    # 접두 브랜드 치환(긴 키 우선 -> '에스케이씨'가 '에스케이'보다 먼저)
+    for k in sorted(BRAND_PREFIX_MAP, key=len, reverse=True):
+        if s.startswith(k):
+            s = BRAND_PREFIX_MAP[k] + s[len(k):]
+            break
+    return normalize_name(s)
+
+
 # 우선주 접미사 패턴 (종목명 끝)
 PREF_SUFFIX = re.compile(r"(우[A-C]?$|\d우[A-C]?$)")
 
@@ -65,6 +101,7 @@ DOMESTIC_ALPHA = {
     "SK", "KT", "LG", "GS", "CJ", "DL", "DB", "LS", "HL", "HD현대", "LX",
     "NAVER", "POSCO", "KT&G", "KCC", "S-OIL", "S-OIL", "HDC", "OCI", "BGF",
     "SKC", "HMM", "SBS", "STX", "KG", "SNT", "NHN", "KG모빌리티",
+    "CJ ENM", "CJ_ENM", "LS ELECTRIC", "LS_ELECTRIC", "INVENI",
 }
 
 
@@ -245,24 +282,31 @@ def parse_issuer(bond_name: str) -> str:
 
 def match_bond_issuers(bond_master_path: str, companies: dict):
     """
-    채권 발행사를 파싱하고 국내주식 회사와 정확매칭.
+    채권 발행사를 PD_PBCM(발행사 컬럼)에서 직접 취득해 국내주식 회사와 매칭.
+    PD_PBCM은 현재 법인명이 정제되어 들어있어(97.8% 채움), PD_NM 파싱보다
+    사명변경·회차·특약 노이즈가 적다. 비어있는 소수 건만 PD_NM 파싱으로 폴백.
     반환:
       issuer_to_company: {발행사명: 회사키}   # 매칭 성공(국내주식과 동일)
       standalone_issuers: {발행사명: 채권수}   # 매칭 실패(발행사 노드로만 존재)
     """
-    # 정규화키 -> 회사키 역인덱스
-    norm_to_company = {info["norm"]: key for key, info in companies.items()}
+    # 정규화키 -> 회사키 역인덱스 (브랜드 접두 통일 적용: 한글발음<->영문브랜드 매칭)
+    norm_to_company = {normalize_for_match(key): key for key in companies}
 
     wb = openpyxl.load_workbook(bond_master_path, read_only=True)
     ws = wb.active
     rows = ws.iter_rows(values_only=True)
     header = list(next(rows))
     i_nm = header.index("PD_NM")
+    i_pbcm = header.index("PD_PBCM")
 
     issuer_count = Counter()
     for r in rows:
-        name = r[i_nm] or ""
-        issuer = parse_issuer(name)
+        # 발행사 컬럼 우선, 없으면 상품명 파싱으로 폴백
+        pbcm = r[i_pbcm] if len(r) > i_pbcm else None
+        if pbcm and str(pbcm).strip():
+            issuer = str(pbcm).strip()
+        else:
+            issuer = parse_issuer(r[i_nm] or "")
         if issuer:
             issuer_count[issuer] += 1
     wb.close()
@@ -270,7 +314,7 @@ def match_bond_issuers(bond_master_path: str, companies: dict):
     issuer_to_company = {}
     standalone_issuers = {}
     for issuer, cnt in issuer_count.items():
-        key = norm_to_company.get(normalize_name(issuer))
+        key = norm_to_company.get(normalize_for_match(issuer))
         if key:
             issuer_to_company[issuer] = key
         else:
@@ -284,9 +328,21 @@ def match_bond_issuers(bond_master_path: str, companies: dict):
 # =============================================================
 
 if __name__ == "__main__":
-    ETF = "PREF01N001_국내ETF마스터_20260711_datarows.xlsx"  # 미사용(참고)
-    PORTFOLIO = "etf_portfolio.xlsx"
-    BOND = "PRBD01N001_국내채권마스터_20260711_datarows.xlsx"
+    from pathlib import Path
+    ROOT = Path(__file__).resolve().parents[2]  # src/graph/resolve_company.py -> fin-013/
+    RAW_DIR = ROOT / "data" / "raw"
+
+    def _find(code_or_name):
+        exact = RAW_DIR / code_or_name
+        if exact.exists():
+            return str(exact)
+        cands = sorted(RAW_DIR.glob(f"*{code_or_name}*.xlsx"))
+        if cands:
+            return str(cands[0])
+        raise FileNotFoundError(f"'{code_or_name}' 파일을 {RAW_DIR}에서 찾지 못했습니다.")
+
+    PORTFOLIO = _find("etf_portfolio.xlsx")
+    BOND = _find("PRBD01N001_국내채권마스터")
 
     print("[1] 국내주식 회사 노드 구축 중...")
     companies, code_to_company = build_stock_companies(PORTFOLIO)

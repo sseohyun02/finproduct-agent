@@ -22,11 +22,38 @@ TTL 인스턴스 생성 (2026 미래에셋 AI Festival)
 
 import json
 import re
+import glob
+from pathlib import Path
 import openpyxl
 from urllib.parse import quote
 
 FIN = "http://mirae-agent.example/ontology#"
 EX = "http://mirae-agent.example/data#"  # 인스턴스 네임스페이스
+
+# 프로젝트 루트: 이 파일이 src/graph/build_ttl.py에 있다는 전제로 2단계 상위.
+# (fin-013/src/graph/build_ttl.py -> fin-013/)
+ROOT = Path(__file__).resolve().parents[2]
+RAW_DIR = ROOT / "data" / "raw"
+GRAPH_DIR = ROOT / "data" / "graph"
+
+
+def find_raw_file(code_or_name: str) -> str:
+    """
+    data/raw/에서 파일을 찾는다. 프로젝트 관례(load_excel.py)와 동일하게
+    '테이블코드(PRBD01N001 등)를 파일명에 포함하는 첫 매치'를 사용해
+    실제 파일명이 조금 달라도(예: 날짜 접미사 차이) 안전하게 찾는다.
+    확장자가 이미 붙은 정확한 파일명(etf_portfolio.xlsx 등)이면 그대로 사용.
+    """
+    exact = RAW_DIR / code_or_name
+    if exact.exists():
+        return str(exact)
+    candidates = sorted(RAW_DIR.glob(f"*{code_or_name}*.xlsx"))
+    if candidates:
+        return str(candidates[0])
+    raise FileNotFoundError(
+        f"'{code_or_name}' 관련 파일을 {RAW_DIR}에서 찾지 못했습니다. "
+        f"data/raw/ 폴더에 원본 엑셀이 있는지 확인하세요."
+    )
 
 
 def safe_local(s: str) -> str:
@@ -42,9 +69,31 @@ def company_uri(company_key: str) -> str:
 
 
 def load_inputs():
-    companies = json.load(open("/home/claude/out/company_nodes.json", encoding="utf-8"))
-    code_to_company = json.load(open("/home/claude/out/code_to_company.json", encoding="utf-8"))
-    return companies, code_to_company
+    # JSON 덤프 대신 resolve_company에서 직접 회사 노드를 구축(패치 일관성 보장).
+    # 원본 그래프(국내상장 1,335개) 재현을 위해 다음 순서를 지킨다:
+    #   1) ETF 구성종목에서 회사 후보 구축(6자리코드)
+    #   2) 채권 발행사 매칭으로 bond_issuer_names 주입(국내 판정 근거)
+    #   3) is_domestic_company로 해외종목 제외(티커 오염분 배제)
+    from resolve_company import (
+        load_bond_names, build_stock_companies,
+        match_bond_issuers, is_domestic_company,
+    )
+    bond_path = find_raw_file("PRBD01N001_국내채권마스터")
+    portfolio_path = find_raw_file("etf_portfolio.xlsx")
+
+    bond_names = load_bond_names(bond_path)
+    companies, code_to_company = build_stock_companies(portfolio_path, bond_names)
+
+    # 채권 발행사 매칭 -> 매칭된 회사에 발행사명 기록(국내 판정 근거)
+    issuer_to_company, _ = match_bond_issuers(bond_path, companies)
+    for issuer, ckey in issuer_to_company.items():
+        companies[ckey].setdefault("bond_issuer_names", set()).add(issuer)
+
+    # 국내 상장사만 유지(해외종목 제외). code_to_company도 함께 정리.
+    kept = {k: v for k, v in companies.items() if is_domestic_company(k, v)}
+    kept_keys = set(kept)
+    code_to_company = {c: k for c, k in code_to_company.items() if k in kept_keys}
+    return kept, code_to_company
 
 
 def gen_company_nodes(companies: dict) -> list:
@@ -125,11 +174,12 @@ def gen_holdings_and_issuance(companies: dict, code_to_company: dict,
     holds_lines = [f"{e} fin:holds {c} ." for e, c in sorted(holds_pairs)]
 
     # --- 채권 발행관계 ---
-    # 발행사명 -> 회사키 역인덱스
-    from resolve_company import parse_issuer, normalize_name
-    norm_to_company = {}
-    for key, info in companies.items():
-        norm_to_company[info["norm"]] = key
+    # 패치된 매칭 로직(PD_PBCM 발행사 + 브랜드 접두 통일)을 그대로 사용해
+    # 발행사<->회사 정합을 얻고, 채권코드(PD_NO)별로 issuedBy 엣지를 생성한다.
+    from resolve_company import parse_issuer, normalize_for_match, match_bond_issuers
+
+    # 발행사명 -> 회사키 매핑 (브랜드 통일 + PD_PBCM 반영)
+    issuer_to_company, _ = match_bond_issuers(bond_path, companies)
 
     issuedby_lines = []
     wb2 = openpyxl.load_workbook(bond_path, read_only=True)
@@ -138,11 +188,17 @@ def gen_holdings_and_issuance(companies: dict, code_to_company: dict,
     header = list(next(rows2))
     i_no = header.index("PD_NO")
     i_nm = header.index("PD_NM")
+    i_pbcm = header.index("PD_PBCM")
     bond_issued = 0
     for r in rows2:
         bond_no = str(r[i_no]).strip() if r[i_no] is not None else ""
-        issuer = parse_issuer(r[i_nm] or "")
-        ckey = norm_to_company.get(normalize_name(issuer))
+        # 발행사 컬럼 우선, 없으면 상품명 파싱 폴백 (match_bond_issuers와 동일 규칙)
+        pbcm = r[i_pbcm] if len(r) > i_pbcm else None
+        if pbcm and str(pbcm).strip():
+            issuer = str(pbcm).strip()
+        else:
+            issuer = parse_issuer(r[i_nm] or "")
+        ckey = issuer_to_company.get(issuer)
         if ckey and bond_no:
             b_uri = f"ex:Bond_{safe_local(bond_no)}"
             c_uri = company_uri(ckey)
@@ -170,13 +226,17 @@ def main():
 """
 
     company_lines = gen_company_nodes(companies)
+    bond_path = find_raw_file("PRBD01N001_국내채권마스터")
+    portfolio_path = find_raw_file("etf_portfolio.xlsx")
     holding_lines, holds_lines, issued_lines, stats = gen_holdings_and_issuance(
         companies, code_to_company,
-        "etf_portfolio.xlsx",
-        "PRBD01N001_국내채권마스터_20260711_datarows.xlsx",
+        portfolio_path,
+        bond_path,
     )
 
-    with open("/home/claude/out/instances_company.ttl", "w", encoding="utf-8") as f:
+    GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = GRAPH_DIR / "instances_company.ttl"
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(header)
         f.write("\n### 회사 노드 ###\n")
         f.write("\n\n".join(company_lines))
@@ -189,6 +249,7 @@ def main():
         f.write("\n")
 
     print("=== 생성 통계 ===")
+    print(f"출력 경로: {out_path}")
     print(f"회사 노드: {len(company_lines)}")
     print(f"Holding 노드: {stats['holding']}")
     print(f"holds 지름길: {len(holds_lines)}")
