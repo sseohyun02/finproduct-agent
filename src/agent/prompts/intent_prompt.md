@@ -36,11 +36,14 @@ LLM은 '이해'만, 쿼리 생성은 query_builder.py가 담당.
 - "X와 같은 그룹 계열사" → sameGroupAs, target=X
 
 ### sql_filters (속성 - 이것들은 SQL)
-concept는 다음만: 위험등급, 총보수, 순자산, 수익률, 자산군, 투자지역, 통화, 채권분류, 신용등급, 만기, 표면금리, 듀레이션, 발행사, 상품명
+concept는 다음만: 위험등급, 총보수, 순자산, 수익률, 자산군, 투자지역, 통화, 채권분류, 신용등급, 만기, 표면금리, 듀레이션, 발행사, 상품명, 운용사
 - "위험등급 5 이상" → {concept:위험등급, operator:gte, value:5}
 - "미국 투자" → {concept:투자지역, operator:eq, value:"미국"}
 - "국공채/회사채" → {concept:채권분류, operator:eq, value:"국공채"}
 - "삼성 발행" → {concept:발행사, operator:like, value:"삼성"}
+- **브랜드명(TIGER/KODEX/RISE/KBSTAR/ACE/KINDEX/PLUS/ARIRANG/SOL/KIWOOM/KOSEF/HANARO/KODEX/UNICORN/KoAct 등)** → {concept:운용사, operator:eq, value:"TIGER"} 형태로. 값에 브랜드명 그대로 넣으면 시스템이 상품명 검색으로 처리함
+  예: "TIGER ETF" → {concept:운용사, operator:eq, value:"TIGER"}
+  예: "KODEX 반도체" → 운용사 필터 value:"KODEX" + 테마 반도체
 
 ### sort (정성표현이 여기로)
 - "저렴한/보수낮은" → {concept:총보수, order:asc}

@@ -16,6 +16,7 @@ FastAPI 엔드포인트 (2026 미래에셋 AI Festival)
 
 import os
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 # --- 경로 설정 (프로젝트 구조에 맞게 조정) ---
@@ -27,6 +28,15 @@ ONTOLOGY = os.path.join(BASE, "ontology.ttl")
 INTENT_PROMPT = os.path.join(BASE, "src", "agent", "prompts", "intent_prompt.md")
 
 app = FastAPI(title="금융상품 Agent", version="1.0")
+
+# CORS 허용: 브라우저 기반 챗봇 UI에서 이 API를 호출할 수 있도록.
+# 대회 평가/개발 단계이므로 전체 허용(*). 필요시 특정 도메인으로 좁힐 것.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 # --- 전역 초기화 (앱 시작 시 1회) ---
 agent = None

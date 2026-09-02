@@ -26,9 +26,17 @@ class QueryBuilder:
         self.graph = graph          # rdflib Graph (SPARQL용)
         self.con = duckdb_con       # DuckDB connection (SQL용)
 
+        # 브랜드 별칭 로드: concepts.json 운용사 별칭 중 영문 브랜드 -> 상품명 LIKE 대상
+        # 예: TIGER, KODEX, RISE, ACE, SOL ... (상품명에 항상 포함되므로 LIKE가 정확)
+        self.brand_aliases = set()
+        for official, alist in self.concepts.get("운용사", {}).get("별칭", {}).items():
+            for a in alist:
+                if re.fullmatch(r"[A-Za-z][A-Za-z0-9\-]*", a):  # 순수 영문 = 브랜드
+                    self.brand_aliases.add(a)
+
         # 상품군 -> DuckDB 테이블/코드컬럼/코드변환
         self.table_map = {
-            "bond": {"table": "bond", "code_col": "PD_NO", "code_expr": "PD_NO"},
+            "bond": {"table": "bond", "code_col": "pd_no", "code_expr": "pd_no"},
             "etf_domestic": {"table": "etf_domestic", "code_col": "pd_itm_no_ma",
                              "code_expr": "substr(pd_itm_no_ma, 2)"},  # A305080 -> 305080
             "etf_overseas": {"table": "etf_overseas", "code_col": "pd_itm_no",
@@ -42,8 +50,8 @@ class QueryBuilder:
                              "du_last_aum", "wu_inv_rgn", "du_er_1y"],
             "etf_overseas": ["pd_nm", "cu_fund_mgmt_co", "cu_charge_rt",
                              "du_last_aum", "wu_inv_rgn"],
-            "bond": ["PD_NM", "STD_PD_MCLS_NM", "SRFC_IRT", "risk_grade_num",
-                     "MAT_DT", "bond_credit_grade", "CORP_PRETAX_YIELD"],
+            "bond": ["pd_nm", "std_pd_mcls_nm", "srfc_irt", "risk_grade_num",
+                     "mat_dt", "bond_credit_grade", "corp_pretax_yield"],
             "fund": ["itm_nm", "asset_type_std", "risk_grade_num",
                      "fd_nast_suma", "fd_yr1_ern_r", "fd_ivst_rgn_desc"],
         }
@@ -57,10 +65,11 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
     # =========================================================
     # 1. 그래프(SPARQL) 조건 -> 상품코드 집합
     # =========================================================
-    def build_graph_query(self, cond):
+    def build_graph_query(self, cond, scope=None):
         """
         graph_condition 하나를 SPARQL로 변환해 상품코드 집합 반환.
         cond: {relation, target, direction}
+        scope: product_scope. hasTheme이 bond일 때 테마ETF→회사→채권 경로 분기에 사용.
         반환: 상품코드 set (예: {'305080', ...}) 또는 회사코드(교집합용)
         """
         rel = cond["relation"]
@@ -72,8 +81,16 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
             q = self.PREFIX + f"""SELECT ?p WHERE {{
                 ?p fin:holds ex:Company_{self._uri(target)} . }}"""
         elif rel == "hasTheme":
-            q = self.PREFIX + f"""SELECT ?p WHERE {{
-                ?p fin:hasTheme ex:Theme_{self._uri(target)} . }}"""
+            # 테마는 ETF 상품에 붙음. scope가 bond면 테마ETF→편입회사→발행채권으로 내려감.
+            if scope == "bond":
+                q = self.PREFIX + f"""SELECT DISTINCT ?p WHERE {{
+                    ?etf fin:hasTheme ex:Theme_{self._uri(target)} .
+                    ?etf fin:holds ?c .
+                    ?p fin:issuedBy ?c . }}"""
+            else:
+                # etf scope(또는 미지정): 테마가 직접 붙은 ETF
+                q = self.PREFIX + f"""SELECT ?p WHERE {{
+                    ?p fin:hasTheme ex:Theme_{self._uri(target)} . }}"""
         elif rel == "belongsToGroup":
             # 그룹 계열사가 발행한 채권 or 담긴 상품
             # 채권: 회사->issuedBy 역방향, ETF: 회사->holds 역방향
@@ -131,10 +148,12 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
                 return "etf_domestic"
             if re.fullmatch(r"KR5\w+", code):
                 return "fund"
-            if re.fullmatch(r"KR6\w+", code):  # 채권 PD_NO는 KR6 다수
-                return "bond"
             if re.fullmatch(r"KR7\w+", code):
                 return "etf_domestic"
+            # 채권 PD_NO: KR로 시작하되 KR5(펀드)/KR7(ETF)는 위에서 이미 분기됨.
+            # 남은 KR* (KR6/KR3/KR2/KR1/KRC/KRB/KRZ 등) + XS를 채권으로 판정.
+            if re.fullmatch(r"KR\w+", code) or re.fullmatch(r"XS\w+", code):
+                return "bond"
             if re.fullmatch(r"[A-Z0-9]{2,6}(\.\w)?", code):
                 return "etf_overseas"
             return "unknown"
@@ -149,6 +168,18 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
     def resolve_column(self, concept, scope):
         """개념 + 상품군 -> DuckDB 컬럼명. concepts.json 참조."""
         c = self.concepts.get(concept, {})
+
+        # 상품명 컬럼 (브랜드 LIKE 검색용)
+        if concept == "상품명":
+            return {"etf_domestic": "pd_nm", "etf_overseas": "pd_nm",
+                    "bond": "pd_nm", "fund": "itm_nm"}.get(scope)
+
+        # 만기: 필터는 잔존일수(remaining_days, 숫자)로 처리(날짜타입 충돌 방지)
+        #   "만기 N년/개월 이내" -> remaining_days < 일수. 정렬도 잔존일수 사용.
+        if concept == "만기":
+            if scope != "bond":
+                return None
+            return "remaining_days"
 
         # 신용등급: 컬럼이 '종류' 안에 중첩됨 (채권 전용)
         if concept == "신용등급":
@@ -186,6 +217,9 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         단일 상품군 기준(여러 상품군이면 호출측에서 UNION).
         """
         scope = intent["product_scope"]
+        # scope 통칭 정규화: etf -> etf_domestic(국내 기본). all은 execute에서 사전 처리됨.
+        if scope == "etf":
+            scope = "etf_domestic"
         tinfo = self.table_map[scope]
         table = tinfo["table"]
         code_expr = tinfo["code_expr"]
@@ -197,12 +231,28 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
 
         # SQL 필터
         for f in intent.get("sql_filters", []):
-            col = self.resolve_column(f["concept"], scope)
+            concept = f["concept"]
+            val = f["value"]
+
+            # 브랜드 감지: 운용사/상품명 필터 값이 브랜드(TIGER/KODEX 등)면 상품명 LIKE로
+            if isinstance(val, str) and val in self.brand_aliases:
+                name_col = self.resolve_column("상품명", scope)
+                if name_col:
+                    where.append(f"{name_col} LIKE '%{val}%'")
+                    continue
+
+            # 특수 처리 개념(환헤지·신용등급)은 col 없이도 _filter_clause에서 직접 처리
+            if concept in ("환헤지", "신용등급"):
+                op = f["operator"]
+                clause = self._filter_clause(None, op, val, concept, scope)
+                where.append(clause)
+                continue
+
+            col = self.resolve_column(concept, scope)
             if not col:
                 continue  # 이 상품군엔 없는 개념
             op = f["operator"]
-            val = f["value"]
-            where.append(self._filter_clause(col, op, val, f["concept"], scope))
+            where.append(self._filter_clause(col, op, val, concept, scope))
 
         # 그래프 결과 결합
         if restrict_codes is not None:
@@ -227,7 +277,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
                 order = sort["order"].upper()
                 # 2차 정렬: 동일값 많은 경우 순자산 desc로 안정화
                 aum_col = {"etf_domestic": "du_last_aum", "etf_overseas": "du_last_aum",
-                           "bond": "ISU_BAL_AMT", "fund": "fd_nast_suma"}.get(scope)
+                           "bond": "isu_bal_amt", "fund": "fd_nast_suma"}.get(scope)
                 if aum_col and aum_col != sort_col:
                     sql += f" ORDER BY {sort_col} {order}, {aum_col} DESC"
                 else:
@@ -238,6 +288,32 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
 
     def _filter_clause(self, col, op, val, concept, scope):
         """단일 필터 -> SQL 조건절."""
+        # 환헤지: 상품군별 처리(펀드=hdge_fd_yn='Y', 국내ETF=상품명 LIKE)
+        if concept == "환헤지":
+            if scope == "fund":
+                return "hdge_fd_yn = 'Y'"
+            elif scope == "etf_domestic":
+                return "pd_nm LIKE '%(H)%'"
+            else:
+                return "1=0"  # 채권·해외ETF엔 환헤지 없음 -> 결과 없음
+
+        # 신용등급: 등급명(AAA/AA+)이면 문자컬럼, 순위비교면 숫자컬럼
+        if concept == "신용등급" and scope == "bond":
+            if isinstance(val, str) and re.match(r"^[A-D]{1,3}[+-]?$", val.strip()):
+                # 등급명 직접 지정: bond_credit_grade = 'AAA'
+                return f"bond_credit_grade = '{val.strip()}'"
+            # 순위 비교("우량한" 등): bond_credit_rank <= N (숫자 작을수록 우량)
+            sqlop = {"gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "eq": "="}.get(op, "<=")
+            return f"bond_credit_rank {sqlop} {val}"
+
+        # 만기: "N년/개월 이내" -> 잔존일수(일)로 변환
+        if concept == "만기":
+            days = self._maturity_to_days(val)
+            if days is not None:
+                sqlop = {"gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "eq": "<="}[op]
+                # "1년 이내"는 보통 lte/lt 의도 -> 잔존일수 <= 365
+                return f"{col} {sqlop} {days}"
+
         if op in ("gte", "lte", "gt", "lt", "eq"):
             sqlop = {"gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "eq": "="}[op]
             if isinstance(val, str) and not val.isdigit():
@@ -259,6 +335,25 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
             return f"{col} BETWEEN '{val[0]}' AND '{val[1]}'"
         return "1=1"
 
+    def _maturity_to_days(self, val):
+        """만기 표현을 잔존일수로 변환. '1년'/1->365, '6개월'->180 등."""
+        if isinstance(val, (int, float)):
+            # 숫자만 오면 '년'으로 간주(1 -> 365)
+            return int(val * 365)
+        s = str(val)
+        m = re.search(r"(\d+)\s*년", s)
+        if m:
+            return int(m.group(1)) * 365
+        m = re.search(r"(\d+)\s*개?월", s)
+        if m:
+            return int(m.group(1)) * 30
+        m = re.search(r"(\d+)\s*일", s)
+        if m:
+            return int(m.group(1))
+        if s.isdigit():
+            return int(s) * 365  # 순수 숫자는 년으로
+        return None
+
     def _period_column(self, period, scope):
         """수익률 기간 -> 컬럼."""
         pc = self.concepts["수익률"].get("기간별컬럼", {})
@@ -271,6 +366,11 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         """의도 JSON -> 실행 -> 결과."""
         graph_conds = intent.get("graph_conditions", [])
         agg = intent.get("aggregation")
+        scope = intent.get("product_scope")  # hasTheme bond 3홉 분기에 사용
+
+        # scope=all: 상품군 불명확 -> 되묻기 신호(SQL 실행 안 함)
+        if intent.get("product_scope") == "all":
+            return {"type": "clarify", "concepts": intent.get("sql_filters", [])}
 
         # 교집합 질의(반도체 테마 공통보유종목)
         if agg and agg.get("type") == "intersection" and graph_conds:
@@ -280,7 +380,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         # 그래프 조건 -> 상품코드 집합 (여러 조건이면 교집합)
         restrict_codes = None
         if graph_conds:
-            code_sets = [self.build_graph_query(c) for c in graph_conds]
+            code_sets = [self.build_graph_query(c, scope) for c in graph_conds]
             restrict_codes = set.intersection(*code_sets) if len(code_sets) > 1 else code_sets[0]
             # 상품군 필터 (그래프는 여러 상품군 섞여있음)
             restrict_codes = self.filter_codes_by_scope(restrict_codes, intent["product_scope"])

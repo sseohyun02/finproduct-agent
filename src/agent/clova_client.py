@@ -101,4 +101,27 @@ class ClovaClient:
         user = f"질문: {question}\n\n검색 결과:\n{result_summary}"
         if note:
             user += f"\n\n안내사항(답변에 포함): {note}"
-        return self._chat(system, user, temperature=0.3, max_tokens=1024)
+        answer = self._chat(system, user, temperature=0.3, max_tokens=1024)
+        return self._strip_advice(answer)
+
+    def _strip_advice(self, text):
+        """CLOVA가 습관적으로 붙이는 투자 조언·권유 문구를 후처리로 제거."""
+        if not text:
+            return text
+        # 조언성 문장이 포함된 줄/문장 제거 (문장 단위)
+        advice_markers = [
+            "투자 성향", "투자성향", "위험 감수", "위험감수", "신중", "고려해야",
+            "고려하시", "권장", "추천드립니다", "판단하시", "결정하시",
+            "장기적인 관점", "장기 관점", "분산 투자", "분산투자", "전문가와 상담",
+            "참고하시기", "참고 바랍니다", "유의하시", "주의하시",
+        ]
+        # 문장 분리(。. 개행 기준) 후 조언 문장 제거
+        import re
+        sentences = re.split(r'(?<=[.。\n])', text)
+        kept = []
+        for s in sentences:
+            if any(m in s for m in advice_markers):
+                continue  # 조언 문장은 버림
+            kept.append(s)
+        result = "".join(kept).strip()
+        return result if result else text  # 다 지워지면 원본 유지
