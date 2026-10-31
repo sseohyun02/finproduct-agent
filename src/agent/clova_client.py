@@ -56,11 +56,19 @@ class ClovaClient:
     # =========================================================
     # 1. 의도추출
     # =========================================================
-    def extract_intent(self, question):
-        """질문 -> 의도 JSON dict. 파싱 실패 시 None."""
-        raw = self._chat(self.intent_prompt, question, temperature=0.1)
-        return self._parse_json(raw)
+    def extract_intent(self, question, temporal_context=None):
+        """질문과 시간 정보를 함께 전달해 의도 JSON을 추출."""
+        system = self.intent_prompt
 
+        if temporal_context is not None:
+            system += (
+                "\n\n## 실행 환경의 시간 정보\n"
+                + json.dumps(temporal_context, ensure_ascii=False)
+            )
+
+        raw = self._chat(system, question, temperature=0.1)
+        return self._parse_json(raw)
+    
     def _parse_json(self, text):
         """LLM 출력에서 JSON 추출(마크다운 펜스 제거)."""
         if not text:

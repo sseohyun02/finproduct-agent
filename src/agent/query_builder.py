@@ -18,13 +18,23 @@
 
 import json
 import re
+import sys
+from pathlib import Path
+
+# Docker/README의 src/agent에서 실행하는 진입점도 공통 식별 모듈을 사용한다.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from src.graph.company_identity import CompanyRegistry
 
 
 class QueryBuilder:
     def __init__(self, concepts_path, graph=None, duckdb_con=None):
-        self.concepts = json.load(open(concepts_path, encoding="utf-8"))
+        with open(concepts_path, encoding="utf-8") as stream:
+            self.concepts = json.load(stream)
         self.graph = graph          # rdflib Graph (SPARQL용)
         self.con = duckdb_con       # DuckDB connection (SQL용)
+        self.company_registry = CompanyRegistry()
+        self._company_index = None
 
         # 브랜드 별칭 로드: concepts.json 운용사 별칭 중 영문 브랜드 -> 상품명 LIKE 대상
         # 예: TIGER, KODEX, RISE, ACE, SOL ... (상품명에 항상 포함되므로 LIKE가 정확)
@@ -65,6 +75,30 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
     # =========================================================
     # 1. 그래프(SPARQL) 조건 -> 상품코드 집합
     # =========================================================
+    def _resolve_company(self, target):
+        """대표명·별칭으로 실제 회사 URI를 찾는다. URI를 입력 이름으로 추측하지 않는다."""
+        from rdflib import Namespace
+        from rdflib.namespace import RDF, RDFS
+
+        if self.graph is None:
+            return None
+        if self._company_index is None:
+            fin = Namespace("http://mirae-agent.example/ontology#")
+            index = {}
+            for node in self.graph.subjects(RDF.type, fin.Company):
+                names = [*self.graph.objects(node, RDFS.label),
+                         *self.graph.objects(node, fin.aliasName)]
+                for name in names:
+                    key = self.company_registry.match_key(str(name))
+                    if key:
+                        index.setdefault(key, set()).add(node)
+            self._company_index = index
+        key = self.company_registry.match_key(target)
+        matches = self._company_index.get(key, set())
+        if len(matches) > 1:
+            raise ValueError(f"회사명 '{target}'에 여러 회사가 매칭됩니다. 회사 대응표를 확인하세요.")
+        return next(iter(matches), None)
+
     def build_graph_query(self, cond, scope=None):
         """
         graph_condition 하나를 SPARQL로 변환해 상품코드 집합 반환.
@@ -76,10 +110,16 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         target = cond["target"]
         direction = cond.get("direction", "reverse")
 
+        if rel in {"holds", "issuedBy", "sameGroupAs"}:
+            company = self._resolve_company(target)
+            if company is None:
+                return set()
+            company_ref = company.n3()
+
         if rel == "holds":
             # 대상 회사를 담은 상품 (reverse)
             q = self.PREFIX + f"""SELECT ?p WHERE {{
-                ?p fin:holds ex:Company_{self._uri(target)} . }}"""
+                ?p fin:holds {company_ref} . }}"""
         elif rel == "hasTheme":
             # 테마는 ETF 상품에 붙음. scope가 bond면 테마ETF→편입회사→발행채권으로 내려감.
             if scope == "bond":
@@ -99,11 +139,11 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
                 {{ ?p fin:issuedBy ?c }} UNION {{ ?p fin:holds ?c }} }}"""
         elif rel == "issuedBy":
             q = self.PREFIX + f"""SELECT ?p WHERE {{
-                ?p fin:issuedBy ex:Company_{self._uri(target)} . }}"""
+                ?p fin:issuedBy {company_ref} . }}"""
         elif rel == "sameGroupAs":
             # 대상과 같은 그룹인 계열사가 발행/보유 (4홉)
             q = self.PREFIX + f"""SELECT ?p WHERE {{
-                ex:Company_{self._uri(target)} fin:belongsToGroup ?g .
+                {company_ref} fin:belongsToGroup ?g .
                 ?c fin:belongsToGroup ?g .
                 {{ ?p fin:issuedBy ?c }} UNION {{ ?p fin:holds ?c }} }}"""
         else:
@@ -362,43 +402,339 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
     # =========================================================
     # 3. 통합 실행
     # =========================================================
-    def execute(self, intent):
-        """의도 JSON -> 실행 -> 결과."""
-        graph_conds = intent.get("graph_conditions", [])
-        agg = intent.get("aggregation")
-        scope = intent.get("product_scope")  # hasTheme bond 3홉 분기에 사용
+    
+    def lookup_holdings(self, intent):
+        """국내 ETF 하나의 회사별 보유내역을 조회한다."""
+        from decimal import Decimal, InvalidOperation
 
-        # scope=all: 상품군 불명확 -> 되묻기 신호(SQL 실행 안 함)
-        if intent.get("product_scope") == "all":
-            return {"type": "clarify", "concepts": intent.get("sql_filters", [])}
+        from rdflib import Namespace
+        from rdflib.namespace import RDFS
 
-        # 교집합 질의(반도체 테마 공통보유종목)
-        if agg and agg.get("type") == "intersection" and graph_conds:
-            return {"type": "intersection",
-                    "data": self.build_intersection(graph_conds[0])}
+        def stop(status, message):
+            return {
+                "type": "holdings",
+                "status": status,
+                "message": message,
+                "data": [],
+            }
 
-        # 그래프 조건 -> 상품코드 집합 (여러 조건이면 교집합)
-        restrict_codes = None
-        if graph_conds:
-            code_sets = [self.build_graph_query(c, scope) for c in graph_conds]
-            restrict_codes = set.intersection(*code_sets) if len(code_sets) > 1 else code_sets[0]
-            # 상품군 필터 (그래프는 여러 상품군 섞여있음)
-            restrict_codes = self.filter_codes_by_scope(restrict_codes, intent["product_scope"])
+        # 1. 지원 범위와 입력 확인
+        if self.con is None or self.graph is None:
+            return stop(
+                "error",
+                "구성종목 조회에 필요한 상품 DB 또는 그래프가 연결되지 않았습니다.",
+            )
 
-        # SQL 필요 여부: 필터/정렬이 있거나, 그래프 결과에 상품정보를 붙여야 하면 SQL
-        # 그래프-only여도 상품명·속성 표시를 위해 SQL 조회가 기본
-        has_graph = restrict_codes is not None
-        needs_sql = intent.get("sql_filters") or intent.get("sort") or has_graph or not graph_conds
+        scope = intent.get("product_scope")
 
-        # SQL 실행
-        sql = self.build_sql(intent, restrict_codes)
-        if self.con:
-            result = self.con.execute(sql).fetchdf()
-            return {"type": "table", "sql": sql, "data": result}
+        if scope not in {"etf", "etf_domestic"}:
+            return stop(
+                "unsupported",
+                "현재 구성종목 조회는 국내 ETF를 대상으로 지원합니다.",
+            )
+
+        conditions = intent.get("graph_conditions") or []
+
+        if len(conditions) != 1:
+            return stop(
+                "unsupported",
+                "현재는 국내 ETF 하나를 지정한 구성종목 조회를 지원합니다. "
+                "추가 관계 조건이 포함된 조회는 아직 지원하지 않습니다.",
+            )
+
+        condition = conditions[0]
+
+        if (
+            condition.get("relation") != "holds"
+            or condition.get("direction") != "forward"
+        ):
+            return stop(
+                "unsupported",
+                "ETF에서 구성종목을 조회하는 질문인지 확인해 주세요.",
+            )
+
+        # 조건을 처리하지 못할 때 임의로 생략하지 않는다.
+        if intent.get("sql_filters") or intent.get("aggregation"):
+            return stop(
+                "unsupported",
+                "구성종목 조회에 추가된 필터 또는 집계 조건은 "
+                "아직 지원하지 않습니다.",
+            )
+
+        target = condition.get("target")
+
+        if not isinstance(target, str) or not target.strip():
+            return stop(
+                "clarify",
+                "조회할 ETF의 정확한 이름이나 6자리 상품코드를 알려주세요.",
+            )
+
+        target = target.strip()
+
+        limit = intent.get("limit", 10)
+
+        if type(limit) is not int or limit < 1:
+            return stop(
+                "clarify",
+                "조회할 구성종목 개수는 1 이상의 정수로 지정해 주세요.",
+            )
+
+        sort = intent.get("sort")
+        order = None
+
+        if sort is not None:
+            if not isinstance(sort, dict):
+                return stop("clarify", "정렬 조건을 확인해 주세요.")
+
+            if sort.get("concept") != "보유비중":
+                return stop(
+                    "unsupported",
+                    "구성종목 조회에서는 보유비중 정렬을 지원합니다.",
+                )
+
+            order = sort.get("order")
+
+            if order not in {"asc", "desc"}:
+                return stop(
+                    "clarify",
+                    "비중을 높은 순으로 볼지, 낮은 순으로 볼지 알려주세요.",
+                )
+
+            if sort.get("period") is not None:
+                return stop(
+                    "unsupported",
+                    "구성종목 비중의 기간별 정렬은 지원하지 않습니다.",
+                )
+
+        # 2. 정확한 상품명 또는 코드로 ETF 확인
+        # 사용자 입력은 SQL 문자열에 직접 삽입하지 않는다.
+        products = self.con.execute(
+            """
+            SELECT DISTINCT
+                substr(pd_itm_no_ma, 2) AS product_code,
+                pd_nm AS product_name
+            FROM etf_domestic
+            WHERE row_valid = true
+              AND upper(trim(pd_grp_no)) = 'ETF'
+              AND (
+                  trim(pd_nm) = ?
+                  OR trim(substr(pd_itm_no_ma, 2)) = ?
+                  OR trim(pd_itm_no_ma) = ?
+              )
+            LIMIT 2
+            """,
+            [target, target, target],
+        ).fetchall()
+
+        if not products:
+            return stop(
+                "product_not_found",
+                "입력한 이름이나 코드와 정확히 일치하는 국내 ETF를 "
+                "찾지 못했습니다. 정확한 상품명이나 6자리 상품코드를 알려주세요.",
+            )
+
+        if len(products) > 1:
+            return stop(
+                "clarify",
+                "일치하는 상품이 여러 개입니다. "
+                "6자리 상품코드로 지정해 주세요.",
+            )
+
+        product_code, product_name = products[0]
+        product_code = str(product_code).strip()
+
+        # 3. ETF의 Holding에서 회사와 비중 조회
+        fin = Namespace("http://mirae-agent.example/ontology#")
+        ex = Namespace("http://mirae-agent.example/data#")
+        product_uri = ex[f"Product_{product_code}"]
+
+        holdings = list(
+            self.graph.objects(product_uri, fin.hasHolding)
+        )
+
+        if not holdings:
+            return stop(
+                "data_missing",
+                f"{product_name} 상품은 확인했지만, "
+                "그래프에 조회 가능한 구성종목·비중 연결이 없습니다.",
+            )
+
+        companies = {}
+
+        for holding in holdings:
+            company_nodes = list(
+                self.graph.objects(holding, fin.ofCompany)
+            )
+            weight_values = list(
+                self.graph.objects(holding, fin.weight)
+            )
+
+            # 모호하거나 누락된 행을 제외한 채 정상 결과로 보여주지 않는다.
+            if len(company_nodes) != 1 or len(weight_values) != 1:
+                return stop(
+                    "data_error",
+                    "일부 보유내역의 회사 또는 비중 정보가 "
+                    "누락되거나 중복되어 결과를 확정할 수 없습니다.",
+                )
+
+            company = company_nodes[0]
+
+            try:
+                weight = Decimal(str(weight_values[0]))
+            except (InvalidOperation, ValueError):
+                return stop(
+                    "data_error",
+                    "숫자로 해석할 수 없는 보유비중이 있습니다.",
+                )
+
+            if not weight.is_finite() or weight < 0:
+                return stop(
+                    "data_error",
+                    "보유비중에 유효하지 않은 값이 있습니다.",
+                )
+
+            company_id = str(company)
+            label = self.graph.value(company, RDFS.label)
+
+            if company_id not in companies:
+                companies[company_id] = {
+                    "company_id": company_id,
+                    "company_name": str(label or company_id),
+                    "weight": Decimal("0"),
+                    "holding_count": 0,
+                }
+
+            # 같은 회사로 연결된 여러 보유내역은 회사 단위로 합산한다.
+            companies[company_id]["weight"] += weight
+            companies[company_id]["holding_count"] += 1
+
+        # 4. 정렬 후 개수 제한
+        rows = list(companies.values())
+
+        if order == "desc":
+            rows.sort(
+                key=lambda row: (
+                    -row["weight"],
+                    row["company_name"],
+                    row["company_id"],
+                )
+            )
+        elif order == "asc":
+            rows.sort(
+                key=lambda row: (
+                    row["weight"],
+                    row["company_name"],
+                    row["company_id"],
+                )
+            )
         else:
-            return {"type": "sql_only", "sql": sql}  # DuckDB 없으면 SQL만 반환
+            rows.sort(
+                key=lambda row: (
+                    row["company_name"],
+                    row["company_id"],
+                )
+            )
 
+        total_count = len(rows)
+        selected = rows[:limit]
 
+        # JSON으로 전달할 수 있도록 Decimal을 문자열로 변환한다.
+        data = [
+            {
+                "company_id": row["company_id"],
+                "company_name": row["company_name"],
+                "weight": format(row["weight"], "f"),
+                "holding_count": row["holding_count"],
+            }
+            for row in selected
+        ]
+
+        return {
+            "type": "holdings",
+            "status": "ok",
+            "product_code": product_code,
+            "product_name": str(product_name),
+            "total_count": total_count,
+            "returned_count": len(data),
+            "sort_order": order,
+            "weight_unit": "unverified",
+            "data": data,
+            "coverage_note": (
+                "그래프에 저장된 회사별 보유내역입니다. "
+                "수집·필터링 범위에 따라 실제 전체 구성종목과 다를 수 있습니다. "
+                "동일 회사에 연결된 보유내역의 비중은 합산했습니다."
+            ),
+        }
+        
+    def execute(self, intent):
+        """의도 JSON을 실제 조회로 연결한다."""
+        graph_conds = intent.get("graph_conditions") or []
+        agg = intent.get("aggregation")
+        scope = intent.get("product_scope")
+
+        # ETF의 구성종목 조회는 별도 경로로 처리한다.
+        # 기존 상품코드 검색에 들어가면 target을 회사로 오해할 수 있다.
+        has_forward_holdings = any(
+            condition.get("relation") == "holds"
+            and condition.get("direction") == "forward"
+            for condition in graph_conds
+        )
+
+        if has_forward_holdings:
+            return self.lookup_holdings(intent)
+
+        # 상품군이 불명확하면 기존 되묻기 처리
+        if scope == "all":
+            return {
+                "type": "clarify",
+                "concepts": intent.get("sql_filters", []),
+            }
+
+        # 기존 공통 종목 처리
+        # 전체 1~7번 중 6번 작업에서 별도로 수정할 부분
+        if agg and agg.get("type") == "intersection" and graph_conds:
+            return {
+                "type": "intersection",
+                "data": self.build_intersection(graph_conds[0]),
+            }
+
+        # 관계 조건으로 상품코드 조회
+        restrict_codes = None
+
+        if graph_conds:
+            code_sets = [
+                self.build_graph_query(condition, scope)
+                for condition in graph_conds
+            ]
+
+            restrict_codes = (
+                set.intersection(*code_sets)
+                if len(code_sets) > 1
+                else code_sets[0]
+            )
+
+            restrict_codes = self.filter_codes_by_scope(
+                restrict_codes,
+                scope,
+            )
+
+        # 상품 상세 조회
+        sql = self.build_sql(intent, restrict_codes)
+
+        if self.con is not None:
+            result = self.con.execute(sql).fetchdf()
+
+            return {
+                "type": "table",
+                "sql": sql,
+                "data": result,
+            }
+
+        return {
+            "type": "sql_only",
+            "sql": sql,
+        }
+        
 if __name__ == "__main__":
     # DuckDB 없이 SQL 생성만 테스트
     qb = QueryBuilder("/home/claude/concepts.json")

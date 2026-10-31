@@ -25,7 +25,20 @@ import re
 import glob
 from pathlib import Path
 import openpyxl
-from urllib.parse import quote
+from rdflib import Literal
+
+if __package__:
+    from .company_identity import CompanyRegistry, safe_local, company_uri
+    from .resolve_company import (
+        load_bond_names, build_stock_companies, match_bond_issuers,
+        is_domestic_company, iter_bond_issuers,
+    )
+else:
+    from company_identity import CompanyRegistry, safe_local, company_uri
+    from resolve_company import (
+        load_bond_names, build_stock_companies, match_bond_issuers,
+        is_domestic_company, iter_bond_issuers,
+    )
 
 FIN = "http://mirae-agent.example/ontology#"
 EX = "http://mirae-agent.example/data#"  # 인스턴스 네임스페이스
@@ -37,35 +50,45 @@ RAW_DIR = ROOT / "data" / "raw"
 GRAPH_DIR = ROOT / "data" / "graph"
 
 
+
+def _col_index(header, name):
+    """컬럼명을 대소문자 무관하게 찾는다. (새 데이터 소문자화 대응)"""
+    low = [str(h).lower() for h in header]
+    return low.index(name.lower())
+
+
 def find_raw_file(code_or_name: str) -> str:
     """
     data/raw/에서 파일을 찾는다. 프로젝트 관례(load_excel.py)와 동일하게
     '테이블코드(PRBD01N001 등)를 파일명에 포함하는 첫 매치'를 사용해
-    실제 파일명이 조금 달라도(예: 날짜 접미사 차이) 안전하게 찾는다.
+    실제 파일명이 조금 달라도(예: 날짜 접미사 차이, 대소문자, 접미사 변경) 안전하게 찾는다.
     확장자가 이미 붙은 정확한 파일명(etf_portfolio.xlsx 등)이면 그대로 사용.
+
+    [2026-08 갱신] 새 파일명(prbd01n001_data.xlsx)은 소문자이고 '_국내채권마스터'가
+    없으므로, 코드 접두부(첫 토큰: PRBD01N001)만 떼어 대소문자 무관으로 매칭한다.
     """
     exact = RAW_DIR / code_or_name
     if exact.exists():
         return str(exact)
-    candidates = sorted(RAW_DIR.glob(f"*{code_or_name}*.xlsx"))
-    if candidates:
-        return str(candidates[0])
+
+    # 코드 접두부만 사용(예: 'PRBD01N001_국내채권마스터' -> 'prbd01n001')
+    code_token = code_or_name.split("_")[0].lower()
+
+    for p in sorted(RAW_DIR.glob("*.xlsx")):
+        name = p.name.lower()
+        if name.startswith("~$") or name.startswith("._"):
+            continue  # 임시/메타 파일 제외
+        # 정확 파일명(etf_portfolio.xlsx 등) 또는 코드 접두 포함
+        if code_or_name.lower() in name or code_token in name:
+            # schema 파일은 제외(데이터 파일 우선)
+            if "schema" in name:
+                continue
+            return str(p)
+
     raise FileNotFoundError(
         f"'{code_or_name}' 관련 파일을 {RAW_DIR}에서 찾지 못했습니다. "
         f"data/raw/ 폴더에 원본 엑셀이 있는지 확인하세요."
     )
-
-
-def safe_local(s: str) -> str:
-    """문자열을 URI 지역명으로 변환. 한글 유지, 특수문자만 언더스코어 치환."""
-    s = str(s).strip()
-    s = re.sub(r"[\s&().,/'\"]+", "_", s)   # 공백·특수문자 -> _
-    s = re.sub(r"_+", "_", s).strip("_")     # 연속 _ 정리
-    return s
-
-
-def company_uri(company_key: str) -> str:
-    return f"ex:Company_{safe_local(company_key)}"
 
 
 def load_inputs():
@@ -74,10 +97,6 @@ def load_inputs():
     #   1) ETF 구성종목에서 회사 후보 구축(6자리코드)
     #   2) 채권 발행사 매칭으로 bond_issuer_names 주입(국내 판정 근거)
     #   3) is_domestic_company로 해외종목 제외(티커 오염분 배제)
-    from resolve_company import (
-        load_bond_names, build_stock_companies,
-        match_bond_issuers, is_domestic_company,
-    )
     bond_path = find_raw_file("PRBD01N001_국내채권마스터")
     portfolio_path = find_raw_file("etf_portfolio.xlsx")
 
@@ -99,19 +118,19 @@ def load_inputs():
 def gen_company_nodes(companies: dict) -> list:
     """회사 노드 TTL 라인 생성."""
     lines = []
+    registry = CompanyRegistry()
     for key, info in companies.items():
-        uri = company_uri(key)
+        uri = company_uri(key, registry, info)
         parts = [f"{uri} a fin:Company ;"]
-        # 표시명
-        name_esc = info["name"].replace('"', '\\"')
-        parts.append(f'    rdfs:label "{name_esc}"@ko ;')
-        # 종목코드들 (속성)
-        for code in info["codes"]:
-            parts.append(f'    fin:stockCode "{code}" ;')
-        # 우선주 등 별칭
-        for al in info["aliases"]:
-            al_esc = al.replace('"', '\\"')
-            parts.append(f'    fin:aliasName "{al_esc}"@ko ;')
+        parts.append(f'    rdfs:label {Literal(info["name"], lang="ko").n3()} ;')
+        for code in sorted(info["codes"]):
+            parts.append(f'    fin:stockCode {Literal(code).n3()} ;')
+        record = registry.lookup(info["name"])
+        aliases = (set(info.get("aliases", []))
+                   | set(info.get("bond_issuer_names", []))
+                   | set(record.get("aliases", []) if record else []))
+        for alias in sorted(aliases - {info["name"]}):
+            parts.append(f'    fin:aliasName {Literal(alias, lang="ko").n3()} ;')
         # 마지막 세미콜론을 점으로
         parts[-1] = parts[-1].rstrip(" ;") + " ."
         lines.append("\n".join(parts))
@@ -124,6 +143,7 @@ def gen_holdings_and_issuance(companies: dict, code_to_company: dict,
     ETF 보유내역(Holding) + 회사 지름길(holds) + 채권 발행관계(issuedBy) 생성.
     반환: (holding_lines, holds_lines, issuedby_lines, stats)
     """
+    registry = CompanyRegistry()
     holding_lines = []
     holds_pairs = set()   # (etf, company_uri) 중복 제거용 지름길
     stats = {"holding": 0, "skip_no_weight": 0, "skip_no_company": 0}
@@ -159,7 +179,7 @@ def gen_holdings_and_issuance(companies: dict, code_to_company: dict,
             hidx += 1
             h_uri = f"ex:Holding_{hidx}"
             etf_uri = f"ex:Product_{safe_local(etf)}"
-            c_uri = company_uri(ckey)
+            c_uri = company_uri(ckey, registry, companies[ckey])
             holding_lines.append(
                 f"{h_uri} a fin:Holding ;\n"
                 f"    fin:ofCompany {c_uri} ;\n"
@@ -176,36 +196,19 @@ def gen_holdings_and_issuance(companies: dict, code_to_company: dict,
     # --- 채권 발행관계 ---
     # 패치된 매칭 로직(PD_PBCM 발행사 + 브랜드 접두 통일)을 그대로 사용해
     # 발행사<->회사 정합을 얻고, 채권코드(PD_NO)별로 issuedBy 엣지를 생성한다.
-    from resolve_company import parse_issuer, normalize_for_match, match_bond_issuers
-
-    # 발행사명 -> 회사키 매핑 (브랜드 통일 + PD_PBCM 반영)
     issuer_to_company, _ = match_bond_issuers(bond_path, companies)
-
-    issuedby_lines = []
-    wb2 = openpyxl.load_workbook(bond_path, read_only=True)
-    ws2 = wb2.active
-    rows2 = ws2.iter_rows(values_only=True)
-    header = list(next(rows2))
-    i_no = header.index("PD_NO")
-    i_nm = header.index("PD_NM")
-    i_pbcm = header.index("PD_PBCM")
+    issuedby_lines = set()
     bond_issued = 0
-    for r in rows2:
-        bond_no = str(r[i_no]).strip() if r[i_no] is not None else ""
-        # 발행사 컬럼 우선, 없으면 상품명 파싱 폴백 (match_bond_issuers와 동일 규칙)
-        pbcm = r[i_pbcm] if len(r) > i_pbcm else None
-        if pbcm and str(pbcm).strip():
-            issuer = str(pbcm).strip()
-        else:
-            issuer = parse_issuer(r[i_nm] or "")
+    for bond_no, issuer in iter_bond_issuers(bond_path):
         ckey = issuer_to_company.get(issuer)
         if ckey and bond_no:
             b_uri = f"ex:Bond_{safe_local(bond_no)}"
-            c_uri = company_uri(ckey)
-            issuedby_lines.append(f"{b_uri} fin:issuedBy {c_uri} .")
+            c_uri = company_uri(ckey, registry, companies[ckey])
+            issuedby_lines.add(f"{b_uri} fin:issuedBy {c_uri} .")
             bond_issued += 1
-    wb2.close()
-    stats["bond_issued"] = bond_issued
+    stats["bond_issued_rows"] = bond_issued
+    stats["bond_issued"] = len(issuedby_lines)
+    issuedby_lines = sorted(issuedby_lines)
 
     return holding_lines, holds_lines, issuedby_lines, stats
 

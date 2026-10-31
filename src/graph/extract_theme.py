@@ -11,15 +11,44 @@
   - 상품 URI는 회사노드(build_ttl.py)와 정합:
       국내ETF: pd_itm_no_ma의 접두문자 제거→6자리 = ex:Product_{6자리}
       해외ETF: pd_itm_no,  펀드: itm_no 그대로 (구성종목 없어 회사노드와 안겹침)
+
+[2026-08 갱신] 대회측 새 데이터 반영:
+  - 파일명 소문자화(pref01n001_data.xlsx 등) → 코드 접두부 대소문자 무관 매칭.
+  - 컬럼명은 원래 소문자(pd_nm 등)라 변동 없음.
+  - 출력 경로를 프로젝트 구조 기반으로(컨테이너 경로 제거).
 """
 
 import re
+from pathlib import Path
 import openpyxl
+
+ROOT = Path(__file__).resolve().parents[2]
+RAW_DIR = ROOT / "data" / "raw"
+GRAPH_DIR = ROOT / "data" / "graph"
+
+
+def find_raw_file(code_or_name: str) -> str:
+    """data/raw/에서 코드 접두부(대소문자 무관)로 데이터 파일을 찾는다."""
+    exact = RAW_DIR / code_or_name
+    if exact.exists():
+        return str(exact)
+    code_token = code_or_name.split("_")[0].lower()
+    for p in sorted(RAW_DIR.glob("*.xlsx")):
+        name = p.name.lower()
+        if name.startswith("~$") or name.startswith("._"):
+            continue
+        if (code_or_name.lower() in name or code_token in name) and "schema" not in name:
+            return str(p)
+    raise FileNotFoundError(f"'{code_or_name}' 파일을 {RAW_DIR}에서 찾지 못했습니다.")
+
+
+def _col_index(header, name):
+    low = [str(h).lower() for h in header]
+    return low.index(name.lower())
 
 
 # =============================================================
 # 산업 테마 사전 (키워드 -> 테마명)
-# 각 테마는 대표 키워드 목록. '전지' 단독 등 오검출 유발 키워드는 배제.
 # =============================================================
 THEME_DICT = {
     "반도체": ["반도체", "비메모리", "파운드리", "소부장"],
@@ -40,20 +69,16 @@ THEME_DICT = {
     "탄소배출권": ["탄소배출권"],
 }
 
-# 상품구조 노이즈 (테마 탐색 전에 상품명에서 제거)
 STRUCT_NOISE = [
     "증권상장지수투자신탁", "상장지수투자신탁", "증권자투자신탁", "증권투자신탁",
     "파생결합증권", "상장지수증권", "자투자신탁", "투자신탁", "재간접형",
     "파생형", "주식혼합", "채권혼합", "혼합자산", "상장지수", "증권",
 ]
 
-# AI 오검출 방지: AI가 다른 단어의 일부인 경우 제외할 패턴
-#   진짜 AI 테마는 'AI테크','글로벌AI','AI&' 등. 단독/구분자 인접일 때만 인정.
 AI_VALID = re.compile(r"(^|[^A-Za-z])AI([^A-Za-z]|$)")
 
 
 def clean_struct(name: str) -> str:
-    """상품명에서 구조 노이즈 제거."""
     s = name
     for w in STRUCT_NOISE:
         s = s.replace(w, "")
@@ -61,7 +86,6 @@ def clean_struct(name: str) -> str:
 
 
 def extract_themes(product_name: str) -> list:
-    """상품명에서 산업 테마 추출. 여러 테마 가능."""
     if not product_name:
         return []
     cleaned = clean_struct(product_name)
@@ -70,7 +94,6 @@ def extract_themes(product_name: str) -> list:
         matched = False
         for kw in kws:
             if kw == "AI":
-                # AI는 단어경계 검사(원문 기준, 대소문자 구분 유지)
                 if AI_VALID.search(product_name):
                     matched = True
                     break
@@ -82,58 +105,50 @@ def extract_themes(product_name: str) -> list:
     return found
 
 
-# =============================================================
-# 상품 URI 매핑 (회사노드와 정합)
-# =============================================================
-
 def product_uri_domestic_etf(pd_itm_no_ma: str) -> str:
-    """국내ETF: 'A305080' -> ex:Product_305080 (회사노드 holds와 동일 키)."""
     code = re.sub(r"^[A-Za-z]", "", str(pd_itm_no_ma).strip())
     return f"ex:Product_{code}"
 
 
 def product_uri_generic(code: str) -> str:
-    """해외ETF·펀드: 코드 그대로(특수문자만 치환)."""
     c = re.sub(r"[\s&().,/'\"]+", "_", str(code).strip())
     return f"ex:Product_{re.sub(r'_+', '_', c).strip('_')}"
 
 
-# =============================================================
-# 실행: 4종 상품에서 테마 추출 -> TTL
-# =============================================================
-
 def build_theme_ttl():
-    theme_set = set()          # 등장한 테마명
-    has_theme_lines = []       # 상품 --hasTheme--> 테마
+    theme_set = set()
+    has_theme_lines = []
 
+    # (테이블코드, 상품명컬럼, 코드컬럼, 종류)
     sources = [
-        ("PREF01N001_국내ETF마스터_20260711_datarows.xlsx", "pd_nm", "pd_itm_no_ma", "detf"),
-        ("PREF02N001_해외ETF마스터_20260711_datarows.xlsx", "pd_nm", "pd_itm_no", "oetf"),
-        ("PRFD01N001_공모펀드마스터_20260711_datarows.xlsx", "itm_nm", "itm_no", "fund"),
+        ("PREF01N001", "pd_nm", "pd_itm_no_ma", "detf"),
+        ("PREF02N001", "pd_nm", "pd_itm_no", "oetf"),
+        ("PRFD01N001", "itm_nm", "itm_no", "fund"),
     ]
 
     stats = {}
-    for path, nmcol, codecol, kind in sources:
+    for code, nmcol, codecol, kind in sources:
+        path = find_raw_file(code)
         wb = openpyxl.load_workbook(path, read_only=True)
         ws = wb.active
         rows = ws.iter_rows(values_only=True)
         header = list(next(rows))
-        i_nm = header.index(nmcol)
-        i_code = header.index(codecol)
+        i_nm = _col_index(header, nmcol)
+        i_code = _col_index(header, codecol)
         n_prod = 0
         n_rel = 0
         for r in rows:
             name = (r[i_nm] or "").strip()
-            code = (r[i_code] or "")
-            if not name or not code:
+            code_val = (r[i_code] or "")
+            if not name or not code_val:
                 continue
             themes = extract_themes(name)
             if not themes:
                 continue
             if kind == "detf":
-                puri = product_uri_domestic_etf(code)
+                puri = product_uri_domestic_etf(code_val)
             else:
-                puri = product_uri_generic(code)
+                puri = product_uri_generic(code_val)
             for th in themes:
                 theme_set.add(th)
                 turi = f"ex:Theme_{th}"
@@ -143,7 +158,6 @@ def build_theme_ttl():
         wb.close()
         stats[kind] = {"themed_products": n_prod, "relations": n_rel}
 
-    # 테마 노드 정의
     theme_node_lines = []
     for th in sorted(theme_set):
         theme_node_lines.append(
@@ -166,7 +180,9 @@ if __name__ == "__main__":
 #  인스턴스: 테마 노드 + 상품-테마 관계(hasTheme)
 #################################################################
 """
-    with open("/home/claude/out/instances_theme.ttl", "w", encoding="utf-8") as f:
+    GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = GRAPH_DIR / "instances_theme.ttl"
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(header)
         f.write("\n### 테마 노드 ###\n")
         f.write("\n".join(theme_nodes))
@@ -175,6 +191,7 @@ if __name__ == "__main__":
         f.write("\n")
 
     print("=== 테마 추출 결과 ===")
+    print(f"출력: {out_path}")
     print(f"테마 종류: {len(themes)}개 -> {themes}")
     print(f"hasTheme 관계: {len(has_theme)}개")
     print()

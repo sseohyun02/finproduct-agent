@@ -6,6 +6,12 @@ etf_overseas는 위험등급 컬럼이 없어 제외한다.
 
 방향성: 1등급=최고위험, 6등급=최저위험 (숫자 클수록 안전)
 원본 컬럼은 수정하지 않고 새 컬럼만 추가한다.
+
+[2026-08 갱신] 대회측 새 데이터 반영:
+  - 채권 컬럼명이 소문자로 변경(PD_RISK_GCD → pd_risk_gcd).
+  - 채권 위험등급 코드 체계가 1~6 → 11~16(+ '00'=해당없음)으로 바뀌고,
+    ETF처럼 pd_risk_nm("매우높은위험(1등급)")이 새로 제공됨.
+  - 따라서 채권도 ETF와 동일하게 pd_risk_nm에서 '(N등급)'의 N을 추출한다.
 """
 import duckdb
 from src.config import DB_PATH
@@ -13,18 +19,20 @@ from src.config import DB_PATH
 # 테이블별 위험등급 정제 SQL 조각.
 # 각 테이블에서 risk_grade_num을 뽑아내는 표현식(원본 → 1~6 또는 NULL)
 RISK_EXPR = {
-    # bond: PD_RISK_GCD가 1~6이면 사용, 그 외(0 등)는 NULL
-    "bond": """
-        CASE WHEN PD_RISK_GCD BETWEEN 1 AND 6
-             THEN CAST(PD_RISK_GCD AS INTEGER) END
+    # bond: pd_risk_nm "매우높은위험(1등급)"에서 괄호 앞 숫자 추출 (ETF와 동일 방식)
+    #   (구 데이터는 PD_RISK_GCD 1~6 정수였으나, 새 데이터는 pd_risk_nm 제공)
+    #   매칭 안 되면 regexp_extract가 ''(빈 문자열)을 반환하므로 NULLIF로 NULL 처리 후 캐스팅
+    #   (예: '해당없음'처럼 등급 패턴이 없는 값 대응)
+    "bond": r"""
+        CAST(NULLIF(regexp_extract(pd_risk_nm, '([1-6])등급', 1), '') AS INTEGER)
     """,
     # etf_domestic: "매우높은위험(1등급)"에서 괄호 앞 숫자 추출
     "etf_domestic": r"""
-        CAST(regexp_extract(pd_risk_nm, '([1-6])등급', 1) AS INTEGER)
+        CAST(NULLIF(regexp_extract(pd_risk_nm, '([1-6])등급', 1), '') AS INTEGER)
     """,
-    # fund: zrin_fd_ivst_risk_gcd가 1~6이면 사용, 그 외(20054, NULL)는 NULL
+    # fund: zrin_fd_ivst_risk_gcd가 1~6이면 사용, 그 외(NULL 등)는 NULL
     "fund": """
-        CASE WHEN zrin_fd_ivst_risk_gcd BETWEEN 1 AND 6
+        CASE WHEN CAST(zrin_fd_ivst_risk_gcd AS INTEGER) BETWEEN 1 AND 6
              THEN CAST(zrin_fd_ivst_risk_gcd AS INTEGER) END
     """,
 }

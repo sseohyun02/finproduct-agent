@@ -73,6 +73,32 @@
       "예": ["상품명", "총보수", "위험등급"]
     },
 
+    "temporal": {
+      "설명": "요청 정보의 시간적 의미. 모든 의도 JSON에 포함한다.",
+      "타입": "object",
+      "항목": {
+        "kind": {
+          "타입": "enum",
+          "값": [
+            "snapshot",
+            "scheduled",
+            "observed",
+            "prediction",
+            "realtime",
+            "unclear"
+          ]
+        },
+        "start_date": {
+          "타입": "string|null",
+          "설명": "observed일 때 요청 시작일. YYYY-MM-DD."
+        },
+        "end_date": {
+          "타입": "string|null",
+          "설명": "observed일 때 요청 종료일. 단일 날짜면 start_date와 동일."
+        }
+      }
+    },
+
     "aggregation": {
       "설명": "집계 질의 여부. count/교집합 등. 없으면 null",
       "타입": "object|null",

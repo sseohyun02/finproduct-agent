@@ -12,6 +12,8 @@
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
+from temporal_policy import TemporalPolicy
 
 
 class FinancialAgent:
@@ -22,6 +24,7 @@ class FinancialAgent:
         self.concepts = json.load(open(concepts_path, encoding="utf-8"))
         self.unanswerable = json.load(open(unanswerable_path, encoding="utf-8"))
         self.clova = clova  # ClovaClient (None이면 의도추출/답변 생략)
+        self.temporal_policy = TemporalPolicy(duckdb_con)
 
     # =========================================================
     # [1] unanswerable 게이트
@@ -31,9 +34,6 @@ class FinancialAgent:
         for gate in self.unanswerable["게이트"]:
             for pattern in gate["패턴"]:
                 if pattern in question:
-                    # 구성종목 게이트는 예외(기초지수) 확인
-                    if gate["유형"] == "구성종목" and ("기초지수" in question or "지수" in question):
-                        continue
                     return True, gate["안내문구"]
         return False, None
 
@@ -153,6 +153,82 @@ class FinancialAgent:
     # =========================================================
     # 전체 실행
     # =========================================================
+    def _build_holdings_response(self, result, intent):
+        """구성종목 조회 결과를 가공해 직접 답변한다."""
+        status = result.get("status", "error")
+
+        # 상품 미확인·데이터 부족·미지원 등의 안내를 그대로 반환
+        if status != "ok":
+            return {
+                "status": status,
+                "answer": result.get(
+                    "message",
+                    "구성종목 조회 결과를 확인하지 못했습니다.",
+                ),
+                "intent": intent,
+                "result_type": "holdings",
+                "retrieved_context": "",
+                "think_trace": (
+                    "ETF 구성종목 조회를 시도했으나 "
+                    f"결과 상태가 '{status}'여서 안내문을 반환함."
+                ),
+            }
+
+        product_name = result["product_name"]
+        product_code = result["product_code"]
+        total_count = result["total_count"]
+        returned_count = result["returned_count"]
+        order = result.get("sort_order")
+
+        order_label = {
+            "desc": "비중 높은 순",
+            "asc": "비중 낮은 순",
+        }.get(order, "회사명 순")
+
+        lines = [
+            f"{product_name} ({product_code})",
+            (
+                f"저장된 회사별 보유내역 {total_count}개 중 "
+                f"{returned_count}개를 {order_label}으로 표시합니다."
+            ),
+            "",
+        ]
+
+        for index, row in enumerate(result["data"], start=1):
+            lines.append(
+                f"{index}. {row['company_name']} "
+                f"— 비중 저장값: {row['weight']}"
+            )
+
+        lines.extend([
+            "",
+            "비중 단위가 확인되지 않아 저장된 숫자를 그대로 표시했습니다.",
+            result["coverage_note"],
+            self.temporal_policy.answer_note(intent),
+        ])
+
+        # answer_note의 마지막 문장은 LLM용 지시이므로
+        # 사용자에게는 그 앞의 기준일 정보만 표시한다.
+        lines[-1] = lines[-1].split(
+            ". 조회 결과는 저장된 데이터이며",
+            1,
+        )[0]
+
+        answer_text = "\n".join(lines)
+
+        return {
+            "status": "ok",
+            "answer": answer_text,
+            "intent": intent,
+            "result_type": "holdings",
+            "retrieved_context": answer_text,
+            "think_trace": (
+                "상품 DB에서 ETF를 확인하고, 그래프의 "
+                "hasHolding·ofCompany·weight 관계를 조회함. "
+                "회사별 비중을 합산한 뒤 정렬과 개수 제한을 적용함."
+            ),
+        }
+        
     def answer(self, question, verbose=False):
         # [1] 게이트
         blocked, msg = self.check_unanswerable(question)
@@ -164,8 +240,18 @@ class FinancialAgent:
         if not self.clova:
             return {"status": "error", "answer": "CLOVA 미연결 - 의도추출 불가",
                     "retrieved_context": "", "think_trace": ""}
-        intent = self.clova.extract_intent(question)
-        if not intent:
+        today = datetime.now(
+            timezone(timedelta(hours=9))
+        ).date().isoformat()
+
+        intent = self.clova.extract_intent(
+            question,
+            temporal_context={
+                "current_date": today,
+                "snapshot_dates": self.temporal_policy.context(),
+            },
+        )
+        if not isinstance(intent, dict) or not intent:
             # 질문에 상품군 키워드가 있으면 "조건 파악했으나 결과 없음"으로 구분,
             # 없으면 일반 가이드. (의도추출 실패와 빈 결과를 다르게 안내)
             detected_scope = None
@@ -188,6 +274,20 @@ class FinancialAgent:
                 trace = "질문 의도를 특정 조건으로 변환하지 못함(주관적·모호한 표현일 수 있음)."
             return {"status": "error", "answer": guide,
                     "retrieved_context": "", "think_trace": trace}
+        
+        temporal_result = self.temporal_policy.check(intent)
+
+        if temporal_result is not None:
+            status, message = temporal_result
+
+            return {
+                "status": status,
+                "answer": message,
+                "intent": intent,
+                "retrieved_context": "",
+                "think_trace": "질문의 시간 조건과 데이터 제공 범위를 확인함.",
+            }
+        
         if verbose:
             print("의도:", json.dumps(intent, ensure_ascii=False))
 
@@ -197,7 +297,11 @@ class FinancialAgent:
         except Exception as e:
             return {"status": "error", "answer": f"쿼리 실행 오류: {e}", "intent": intent,
                     "retrieved_context": "", "think_trace": f"쿼리 실행 중 오류: {e}"}
-
+        
+        # 구성종목 결과는 전용 응답으로 처리
+        if result.get("type") == "holdings":
+            return self._build_holdings_response(result, intent)
+        
         # [5] 답변생성
         summary = self.summarize_result(result, intent)
 
@@ -219,9 +323,14 @@ class FinancialAgent:
                     "retrieved_context": self._build_retrieved_context(result, summary),
                     "think_trace": trace}
 
-        note = self.get_answer_note(intent)
-        answer_text = self.clova.generate_answer(question, summary, note)
+        notes = [
+            self.get_answer_note(intent),
+            self.temporal_policy.answer_note(intent),
+        ]
+        note = " ".join(item for item in notes if item)
 
+        answer_text = self.clova.generate_answer(question, summary, note)
+        
         # retrieved_context: 답변 근거가 된 실제 조회 데이터
         retrieved_context = self._build_retrieved_context(result, summary)
         # think_trace: 의도추출 -> 쿼리 -> 실행 과정(그래프 활용 어필)

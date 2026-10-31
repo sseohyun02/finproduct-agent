@@ -25,9 +25,11 @@ TABLES = {
 }
 
 # 각 테이블의 기대 건수 (적재 검증용)
+# [2026-08 갱신] 대회측 새 데이터 반영:
+#   채권·펀드가 정제되어 행수 감소(만기 지난 채권 제거, 펀드 정리), ETF는 소폭 증가.
 EXPECTED_ROWS = {
-    "bond": 42394,
-    "etf_domestic": 1734,
-    "etf_overseas": 5646,
-    "fund": 95619,
+    "bond": 21882,
+    "etf_domestic": 1780,
+    "etf_overseas": 6037,
+    "fund": 23676,
 }

@@ -1,0 +1,30 @@
+{"question_id":"S01","question":"위험등급 5 이상 채권 보여줘","qtype":"simple"}
+{"question_id":"S02","question":"총보수 0.1% 이하인 국내 ETF 알려줘","qtype":"simple"}
+{"question_id":"S03","question":"미국에 투자하는 보수 낮은 ETF 5개","qtype":"simple"}
+{"question_id":"S04","question":"만기 1년 이내 국공채","qtype":"simple"}
+{"question_id":"S05","question":"순자산 큰 주식형 펀드","qtype":"simple"}
+{"question_id":"S06","question":"우량한 회사채","qtype":"simple"}
+{"question_id":"S07","question":"환헤지되는 공모펀드","qtype":"simple"}
+{"question_id":"R01","question":"삼성전자 담은 ETF","qtype":"relation"}
+{"question_id":"R02","question":"삼성전자 담은 ETF 중 보수 낮은 거 5개","qtype":"relation"}
+{"question_id":"R03","question":"신한금융그룹이 발행한 채권","qtype":"relation"}
+{"question_id":"R04","question":"SK하이닉스를 담은 ETF 중 순자산 큰 것","qtype":"relation"}
+{"question_id":"R05","question":"반도체 테마 ETF 알려줘","qtype":"relation"}
+{"question_id":"R06","question":"삼성전자와 같은 그룹 계열사가 발행한 채권","qtype":"relation"}
+{"question_id":"R07","question":"AI 테마 ETF가 담은 회사들이 발행한 채권","qtype":"relation"}
+{"question_id":"C01","question":"TIGER와 KODEX ETF 중 보수 낮은 쪽 보여줘","qtype":"compare"}
+{"question_id":"C02","question":"국공채와 회사채 중 표면금리 높은 상품","qtype":"compare"}
+{"question_id":"C03","question":"미래에셋자산운용 ETF와 삼성자산운용 ETF 비교해줘","qtype":"compare"}
+{"question_id":"C04","question":"1년 수익률 가장 높은 국내 ETF 5개","qtype":"compare"}
+{"question_id":"A01","question":"반도체 테마 ETF들이 공통으로 담은 종목","qtype":"aggregate"}
+{"question_id":"A02","question":"AI 테마 ETF들이 공통으로 담은 종목","qtype":"aggregate"}
+{"question_id":"A03","question":"방산 테마 ETF들이 공통으로 담은 종목","qtype":"aggregate"}
+{"question_id":"G01","question":"이 ETF 구성종목 비중 알려줘","qtype":"gate"}
+{"question_id":"G02","question":"반도체 ETF 앞으로 오를까","qtype":"gate"}
+{"question_id":"G03","question":"이 펀드 분배금 얼마야","qtype":"gate"}
+{"question_id":"G04","question":"삼성전자 지금 현재가 얼마야","qtype":"gate"}
+{"question_id":"G05","question":"미국 국채 사고 싶은데 어떻게 사","qtype":"gate"}
+{"question_id":"G06","question":"채권 양도세 세율 알려줘","qtype":"gate"}
+{"question_id":"N01","question":"위험등급 9 이상 채권","qtype":"no_result"}
+{"question_id":"N02","question":"환헤지되는 해외 ETF","qtype":"no_result"}
+{"question_id":"X01","question":"보수 낮은 상품 알려줘","qtype":"clarify"}

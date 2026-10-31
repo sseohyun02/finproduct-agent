@@ -17,3 +17,5 @@ fin/
 
 # OS
 .DS_Store
+
+bench/*.csv

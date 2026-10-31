@@ -1,0 +1,20 @@
+# 보안: API 키는 절대 이미지에 넣지 않음
+.env
+*.env
+
+# 파이썬 캐시·가상환경
+__pycache__/
+*.pyc
+fin/
+venv/
+.venv/
+
+# 원본 엑셀(용량 큼, DuckDB로 이미 변환됨 - 재현엔 findb.duckdb만 필요)
+*.xlsx
+
+# 개발 부산물
+.git/
+.gitignore
+*.log
+server.log
+chatbot.html

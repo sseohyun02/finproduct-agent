@@ -1,0 +1,782 @@
+{
+  "description": "회사 대표명·ID·별칭·그룹의 단일 대응표. 기존 group_whitelist의 명시적 목록을 이관했으며 소속 최신성은 별도 재검증하지 않음. 접두사 추론 결과는 포함하지 않음. group=null은 소속 미확인.",
+  "companies": [
+    {
+      "id": "Company_삼성전자",
+      "name": "삼성전자",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성SDI",
+      "name": "삼성SDI",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성물산",
+      "name": "삼성물산",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성생명",
+      "name": "삼성생명",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성화재",
+      "name": "삼성화재",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성증권",
+      "name": "삼성증권",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성카드",
+      "name": "삼성카드",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성에스디에스",
+      "name": "삼성에스디에스",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성바이오로직스",
+      "name": "삼성바이오로직스",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성전기",
+      "name": "삼성전기",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성중공업",
+      "name": "삼성중공업",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성E_A",
+      "name": "삼성E&A",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_삼성FN리츠",
+      "name": "삼성FN리츠",
+      "aliases": [],
+      "group": "삼성"
+    },
+    {
+      "id": "Company_SK",
+      "name": "SK",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SKC",
+      "name": "SKC",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK가스",
+      "name": "SK가스",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK네트웍스",
+      "name": "SK네트웍스",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK디스커버리",
+      "name": "SK디스커버리",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK디앤디",
+      "name": "SK디앤디",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK리츠",
+      "name": "SK리츠",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK바이오사이언스",
+      "name": "SK바이오사이언스",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK바이오팜",
+      "name": "SK바이오팜",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK스퀘어",
+      "name": "SK스퀘어",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK아이이테크놀로지",
+      "name": "SK아이이테크놀로지",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK오션플랜트",
+      "name": "SK오션플랜트",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK이노베이션",
+      "name": "SK이노베이션",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK이터닉스",
+      "name": "SK이터닉스",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK증권",
+      "name": "SK증권",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK케미칼",
+      "name": "SK케미칼",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK텔레콤",
+      "name": "SK텔레콤",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_SK하이닉스",
+      "name": "SK하이닉스",
+      "aliases": [],
+      "group": "SK"
+    },
+    {
+      "id": "Company_현대차",
+      "name": "현대차",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_기아",
+      "name": "기아",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대모비스",
+      "name": "현대모비스",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대글로비스",
+      "name": "현대글로비스",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대제철",
+      "name": "현대제철",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대위아",
+      "name": "현대위아",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대로템",
+      "name": "현대로템",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대오토에버",
+      "name": "현대오토에버",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대건설",
+      "name": "현대건설",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_현대차증권",
+      "name": "현대차증권",
+      "aliases": [],
+      "group": "현대차"
+    },
+    {
+      "id": "Company_LG",
+      "name": "LG",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG디스플레이",
+      "name": "LG디스플레이",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG생활건강",
+      "name": "LG생활건강",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG씨엔에스",
+      "name": "LG씨엔에스",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG에너지솔루션",
+      "name": "LG에너지솔루션",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG유플러스",
+      "name": "LG유플러스",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG이노텍",
+      "name": "LG이노텍",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG전자",
+      "name": "LG전자",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG헬로비전",
+      "name": "LG헬로비전",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_LG화학",
+      "name": "LG화학",
+      "aliases": [],
+      "group": "LG"
+    },
+    {
+      "id": "Company_롯데지주",
+      "name": "롯데지주",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데렌탈",
+      "name": "롯데렌탈",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데리츠",
+      "name": "롯데리츠",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데손해보험",
+      "name": "롯데손해보험",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데쇼핑",
+      "name": "롯데쇼핑",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데에너지머티리얼즈",
+      "name": "롯데에너지머티리얼즈",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데웰푸드",
+      "name": "롯데웰푸드",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데이노베이트",
+      "name": "롯데이노베이트",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데정밀화학",
+      "name": "롯데정밀화학",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데칠성",
+      "name": "롯데칠성",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데케미칼",
+      "name": "롯데케미칼",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데하이마트",
+      "name": "롯데하이마트",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_롯데관광개발",
+      "name": "롯데관광개발",
+      "aliases": [],
+      "group": "롯데"
+    },
+    {
+      "id": "Company_한화",
+      "name": "한화",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화갤러리아",
+      "name": "한화갤러리아",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화리츠",
+      "name": "한화리츠",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화비전",
+      "name": "한화비전",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화생명",
+      "name": "한화생명",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화손해보험",
+      "name": "한화손해보험",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화솔루션",
+      "name": "한화솔루션",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화시스템",
+      "name": "한화시스템",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화에어로스페이스",
+      "name": "한화에어로스페이스",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화엔진",
+      "name": "한화엔진",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화오션",
+      "name": "한화오션",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_한화투자증권",
+      "name": "한화투자증권",
+      "aliases": [],
+      "group": "한화"
+    },
+    {
+      "id": "Company_GS",
+      "name": "GS",
+      "aliases": [],
+      "group": "GS"
+    },
+    {
+      "id": "Company_GS건설",
+      "name": "GS건설",
+      "aliases": [],
+      "group": "GS"
+    },
+    {
+      "id": "Company_GS글로벌",
+      "name": "GS글로벌",
+      "aliases": [],
+      "group": "GS"
+    },
+    {
+      "id": "Company_GS리테일",
+      "name": "GS리테일",
+      "aliases": [],
+      "group": "GS"
+    },
+    {
+      "id": "Company_GS피앤엘",
+      "name": "GS피앤엘",
+      "aliases": [],
+      "group": "GS"
+    },
+    {
+      "id": "Company_CJ",
+      "name": "CJ",
+      "aliases": [],
+      "group": "CJ"
+    },
+    {
+      "id": "Company_CJ_ENM",
+      "name": "CJ ENM",
+      "aliases": [],
+      "group": "CJ"
+    },
+    {
+      "id": "Company_CJ대한통운",
+      "name": "CJ대한통운",
+      "aliases": [],
+      "group": "CJ"
+    },
+    {
+      "id": "Company_CJ씨푸드",
+      "name": "CJ씨푸드",
+      "aliases": [],
+      "group": "CJ"
+    },
+    {
+      "id": "Company_CJ제일제당",
+      "name": "CJ제일제당",
+      "aliases": [],
+      "group": "CJ"
+    },
+    {
+      "id": "Company_CJ프레시웨이",
+      "name": "CJ프레시웨이",
+      "aliases": [],
+      "group": "CJ"
+    },
+    {
+      "id": "Company_신한지주",
+      "name": "신한지주",
+      "aliases": [],
+      "group": "신한"
+    },
+    {
+      "id": "Company_신한알파리츠",
+      "name": "신한알파리츠",
+      "aliases": [],
+      "group": "신한"
+    },
+    {
+      "id": "Company_신한서부티엔디리츠",
+      "name": "신한서부티엔디리츠",
+      "aliases": [],
+      "group": "신한"
+    },
+    {
+      "id": "Company_KB금융",
+      "name": "KB금융",
+      "aliases": [],
+      "group": "KB"
+    },
+    {
+      "id": "Company_KB발해인프라",
+      "name": "KB발해인프라",
+      "aliases": [],
+      "group": "KB"
+    },
+    {
+      "id": "Company_KB스타리츠",
+      "name": "KB스타리츠",
+      "aliases": [],
+      "group": "KB"
+    },
+    {
+      "id": "Company_하나금융지주",
+      "name": "하나금융지주",
+      "aliases": [],
+      "group": "하나"
+    },
+    {
+      "id": "Company_우리금융지주",
+      "name": "우리금융지주",
+      "aliases": [],
+      "group": "우리"
+    },
+    {
+      "id": "Company_POSCO홀딩스",
+      "name": "POSCO홀딩스",
+      "aliases": [],
+      "group": "포스코"
+    },
+    {
+      "id": "Company_포스코DX",
+      "name": "포스코DX",
+      "aliases": [],
+      "group": "포스코"
+    },
+    {
+      "id": "Company_포스코스틸리온",
+      "name": "포스코스틸리온",
+      "aliases": [],
+      "group": "포스코"
+    },
+    {
+      "id": "Company_포스코엠텍",
+      "name": "포스코엠텍",
+      "aliases": [],
+      "group": "포스코"
+    },
+    {
+      "id": "Company_포스코인터내셔널",
+      "name": "포스코인터내셔널",
+      "aliases": [],
+      "group": "포스코"
+    },
+    {
+      "id": "Company_포스코퓨처엠",
+      "name": "포스코퓨처엠",
+      "aliases": [],
+      "group": "포스코"
+    },
+    {
+      "id": "Company_두산",
+      "name": "두산",
+      "aliases": [],
+      "group": "두산"
+    },
+    {
+      "id": "Company_두산로보틱스",
+      "name": "두산로보틱스",
+      "aliases": [],
+      "group": "두산"
+    },
+    {
+      "id": "Company_두산밥캣",
+      "name": "두산밥캣",
+      "aliases": [],
+      "group": "두산"
+    },
+    {
+      "id": "Company_두산에너빌리티",
+      "name": "두산에너빌리티",
+      "aliases": [],
+      "group": "두산"
+    },
+    {
+      "id": "Company_두산테스나",
+      "name": "두산테스나",
+      "aliases": [],
+      "group": "두산"
+    },
+    {
+      "id": "Company_두산퓨얼셀",
+      "name": "두산퓨얼셀",
+      "aliases": [],
+      "group": "두산"
+    },
+    {
+      "id": "Company_HD현대",
+      "name": "HD현대",
+      "aliases": [],
+      "group": "HD현대"
+    },
+    {
+      "id": "Company_HD현대마린솔루션",
+      "name": "HD현대마린솔루션",
+      "aliases": [],
+      "group": "HD현대"
+    },
+    {
+      "id": "Company_HD현대마린엔진",
+      "name": "HD현대마린엔진",
+      "aliases": [],
+      "group": "HD현대"
+    },
+    {
+      "id": "Company_HD현대에너지솔루션",
+      "name": "HD현대에너지솔루션",
+      "aliases": [],
+      "group": "HD현대"
+    },
+    {
+      "id": "Company_HD현대일렉트릭",
+      "name": "HD현대일렉트릭",
+      "aliases": [],
+      "group": "HD현대"
+    },
+    {
+      "id": "Company_HD현대중공업",
+      "name": "HD현대중공업",
+      "aliases": [],
+      "group": "HD현대"
+    },
+    {
+      "id": "Company_LS",
+      "name": "LS",
+      "aliases": [],
+      "group": "LS"
+    },
+    {
+      "id": "Company_LS_ELECTRIC",
+      "name": "LS ELECTRIC",
+      "aliases": [],
+      "group": "LS"
+    },
+    {
+      "id": "Company_LS네트웍스",
+      "name": "LS네트웍스",
+      "aliases": [],
+      "group": "LS"
+    },
+    {
+      "id": "Company_LS마린솔루션",
+      "name": "LS마린솔루션",
+      "aliases": [],
+      "group": "LS"
+    },
+    {
+      "id": "Company_LS머트리얼즈",
+      "name": "LS머트리얼즈",
+      "aliases": [],
+      "group": "LS"
+    },
+    {
+      "id": "Company_LS에코에너지",
+      "name": "LS에코에너지",
+      "aliases": [],
+      "group": "LS"
+    },
+    {
+      "id": "Company_LS증권",
+      "name": "LS증권",
+      "aliases": [],
+      "group": "LS"
+    },
+    {
+      "id": "Company_DB",
+      "name": "DB",
+      "aliases": [],
+      "group": "DB"
+    },
+    {
+      "id": "Company_DB손해보험",
+      "name": "DB손해보험",
+      "aliases": [],
+      "group": "DB"
+    },
+    {
+      "id": "Company_DB증권",
+      "name": "DB증권",
+      "aliases": [],
+      "group": "DB"
+    },
+    {
+      "id": "Company_DB하이텍",
+      "name": "DB하이텍",
+      "aliases": [],
+      "group": "DB"
+    },
+    {
+      "id": "Company_미래에셋증권",
+      "name": "미래에셋증권",
+      "aliases": [],
+      "group": "미래에셋"
+    },
+    {
+      "id": "Company_미래에셋생명",
+      "name": "미래에셋생명",
+      "aliases": [],
+      "group": "미래에셋"
+    },
+    {
+      "id": "Company_미래에셋벤처투자",
+      "name": "미래에셋벤처투자",
+      "aliases": [],
+      "group": "미래에셋"
+    },
+    {
+      "id": "Company_미래에셋글로벌리츠",
+      "name": "미래에셋글로벌리츠",
+      "aliases": [],
+      "group": "미래에셋"
+    },
+    {
+      "id": "Company_신한은행",
+      "name": "신한은행",
+      "aliases": [
+        "(주)신한은행",
+        "주식회사 신한은행"
+      ],
+      "group": "신한"
+    }
+  ]
+}

@@ -1,89 +1,137 @@
-import json, re
-from urllib.parse import quote
-import openpyxl
-FIN="http://mirae-agent.example/ontology#"; EX="http://mirae-agent.example/data#"
-def safe_local(s):
-    s=str(s).strip()
-    s=re.sub(r"[\s&().,/'\"]+","_",s)
-    return re.sub(r"_+","_",s).strip("_")
-def company_uri(k): return f"ex:Company_{safe_local(k)}"
-def group_uri(k): return f"ex:Group_{safe_local(k)}"
-def issuer_uri(k): return f"ex:Issuer_{safe_local(k)}"
+"""명시적 회사 대응표로 그룹을 연결하고, 그룹 미확인 발행사도 보존한다."""
+import json
+from pathlib import Path
+from rdflib import Literal
 
-def make_judge(rules):
-    fin_groups=rules["금융그룹"]; ind_groups=rules["산업그룹"]
-    fin_kw=rules["금융업종키워드"]; ind_kw=fin_kw+rules["제조업종키워드추가"]
-    exclude_exact=set(rules["명시적배제"]); exclude_kw=rules["배제키워드"]
-    def judge(issuer):
-        if issuer in exclude_exact: return None
-        if any(kw in issuer for kw in exclude_kw): return None
-        for group,prefixes in fin_groups.items():
-            for p in prefixes:
-                if issuer.startswith(p) and any(kw in issuer for kw in fin_kw): return group
-        for group,prefixes in ind_groups.items():
-            for p in prefixes:
-                if issuer.startswith(p) and any(kw in issuer for kw in ind_kw): return group
-        return None
-    return judge
+if __package__:
+    from .company_identity import (
+        CompanyRegistry, build_company_match_index, company_uri, safe_local,
+    )
+    from .resolve_company import iter_bond_issuers
+    from .build_ttl import find_raw_file
+else:
+    from company_identity import (
+        CompanyRegistry, build_company_match_index, company_uri, safe_local,
+    )
+    from resolve_company import iter_bond_issuers
+    from build_ttl import find_raw_file
 
-companies=json.load(open("/home/claude/out/company_nodes.json",encoding="utf-8"))
-wl=json.load(open("/home/claude/group_whitelist.json",encoding="utf-8"))["그룹"]
-rules=json.load(open("/home/claude/issuer_group_rules.json",encoding="utf-8"))
-judge=make_judge(rules)
-company_keys=set(companies.keys())
+FIN = "http://mirae-agent.example/ontology#"
+EX = "http://mirae-agent.example/data#"
+ROOT = Path(__file__).resolve().parents[2]
+GRAPH_DIR = ROOT / "data/graph"
+PROC_DIR = ROOT / "data/processed"
 
-# 주식회사 -> 그룹
-company_to_group={}
-for group,members in wl.items():
-    for m in members:
-        if m in company_keys: company_to_group[m]=group
 
-# 발행사 -> 그룹
-from resolve_company import parse_issuer, normalize_name
-BOND="PRBD01N001_국내채권마스터_20260711_datarows.xlsx"
-wb=openpyxl.load_workbook(BOND,read_only=True); ws=wb.active
-rows=ws.iter_rows(values_only=True); header=list(next(rows))
-i_no=header.index("PD_NO"); i_nm=header.index("PD_NM")
-norm_to_company={info["norm"]:k for k,info in companies.items()}
-issuer_to_group={}; issuer_bonds={}
-for r in rows:
-    bond_no=str(r[i_no]).strip() if r[i_no] else ""
-    issuer=parse_issuer(r[i_nm] or "")
-    if not issuer or not bond_no: continue
-    if normalize_name(issuer) in norm_to_company: continue
-    g=judge(issuer)
-    if g:
-        issuer_to_group[issuer]=g
-        issuer_bonds.setdefault(issuer,[]).append(bond_no)
-wb.close()
+def group_uri(name):
+    return f"ex:Group_{safe_local(name)}"
 
-used_groups=set(company_to_group.values())|set(issuer_to_group.values())
-group_nodes=[f'{group_uri(g)} a fin:Group ;\n    rdfs:label "{g}"@ko .' for g in sorted(used_groups)]
-belongs_company=[f"{company_uri(k)} fin:belongsToGroup {group_uri(g)} ." for k,g in sorted(company_to_group.items())]
-issuer_nodes=[]; belongs_issuer=[]; issued_by=[]
-for issuer,g in sorted(issuer_to_group.items()):
-    iuri=issuer_uri(issuer); name_esc=issuer.replace('"','\\"')
-    issuer_nodes.append(f'{iuri} a fin:Company ;\n    rdfs:label "{name_esc}"@ko ;\n    fin:isListed "false"^^<http://www.w3.org/2001/XMLSchema#boolean> .')
-    belongs_issuer.append(f"{iuri} fin:belongsToGroup {group_uri(g)} .")
-    for bond_no in issuer_bonds[issuer]:
-        issued_by.append(f"ex:Bond_{safe_local(bond_no)} fin:issuedBy {iuri} .")
 
-htxt=f"@prefix fin: <{FIN}> .\n@prefix ex:  <{EX}> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\n"
-with open("/home/claude/out/instances_group.ttl","w",encoding="utf-8") as f:
-    f.write(htxt)
-    f.write("### 그룹 노드 ###\n"+"\n".join(group_nodes))
-    f.write("\n\n### 주식회사 → 그룹 ###\n"+"\n".join(belongs_company))
-    f.write("\n\n### 비상장 발행사 노드 ###\n"+"\n".join(issuer_nodes))
-    f.write("\n\n### 발행사 → 그룹 ###\n"+"\n".join(belongs_issuer))
-    f.write("\n\n### 채권 → 발행사 (issuedBy) ###\n"+"\n".join(issued_by)+"\n")
+def build_group_lines(companies, bond_rows, registry=None):
+    """입력 행을 읽어 TTL과 미등록 발행사 검토 목록을 만든다. 파일 쓰기는 main만 수행."""
+    registry = registry or CompanyRegistry()
+    index = build_company_match_index(companies, registry)
+    groups = set()
+    belongs = set()
+    issued = set()
+    standalone = {}
+    review = {}
+    id_keys = {company_uri(k, registry, v): registry.match_key(k)
+               for k, v in companies.items()}
 
-from collections import Counter
-gb=Counter()
-for issuer,g in issuer_to_group.items(): gb[g]+=len(issuer_bonds[issuer])
-print("그룹 노드:",len(used_groups))
-print("주식회사→그룹:",len(belongs_company))
-print("신규 발행사 노드:",len(issuer_nodes))
-print("발행사→그룹:",len(belongs_issuer))
-print("채권→발행사(issuedBy):",len(issued_by))
-print("\n그룹별 비상장발행사 채권 top:")
-for g,c in gb.most_common(10): print(f"  {g}: {c}건")
+    def add_group(uri, record):
+        group = record.get("group") if record else None
+        if group:
+            groups.add(group)
+            belongs.add(f"{uri} fin:belongsToGroup {group_uri(group)} .")
+
+    for key, info in companies.items():
+        add_group(company_uri(key, registry, info), registry.lookup(info["name"]))
+
+    for bond_no, issuer in bond_rows:
+        norm = registry.match_key(issuer)
+        if not norm or not bond_no:
+            continue
+        record = registry.lookup(issuer)
+        company_key = index.get(norm)
+        if company_key is not None:
+            if not record or not record.get("group"):
+                company_id = company_uri(company_key, registry, companies[company_key])[3:]
+                item = review.setdefault(company_id, {
+                    "id": company_id, "names": set(), "bond_codes": set(),
+                    "reason": "unregistered" if not record else "group_unknown",
+                })
+                item["names"].add(issuer)
+                item["bond_codes"].add(bond_no)
+            # 회사 TTL이 같은 정규화 기준으로 이 발행 관계를 생성한다.
+            continue
+
+        company_id, name = registry.identity(issuer)
+        uri = "ex:" + company_id
+        if uri in id_keys and id_keys[uri] != norm:
+            raise ValueError(f"발행사 ID 충돌: {issuer!r}, {uri}")
+        id_keys[uri] = norm
+        entry = standalone.setdefault(uri, {"names": set(), "record": record})
+        entry["names"].add(name)
+        entry["names"].add(issuer)
+        add_group(uri, record)
+        # 그룹 판정과 독립적으로 발행사 및 발행 관계를 보존한다.
+        issued.add(f"ex:Bond_{safe_local(bond_no)} fin:issuedBy {uri} .")
+        if not record or not record.get("group"):
+            item = review.setdefault(company_id, {
+                "id": company_id, "names": set(), "bond_codes": set(),
+                "reason": "unregistered" if not record else "group_unknown",
+            })
+            item["names"].add(issuer)
+            item["bond_codes"].add(bond_no)
+
+    nodes = []
+    for uri, entry in sorted(standalone.items()):
+        record = entry["record"]
+        names = entry["names"]
+        label = record["name"] if record else min(names, key=lambda x: (len(x), x))
+        aliases = names | set(record.get("aliases", []) if record else [])
+        nodes.extend([
+            f"{uri} a fin:Company .",
+            f"{uri} rdfs:label {Literal(label, lang='ko').n3()} .",
+        ])
+        for alias in sorted(aliases - {label}):
+            nodes.append(f"{uri} fin:aliasName {Literal(alias, lang='ko').n3()} .")
+        # ETF 회사 목록에 없다는 이유로 isListed=false를 추정하지 않는다.
+
+    header = (f"@prefix fin: <{FIN}> .\n@prefix ex: <{EX}> .\n"
+              "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n")
+    group_nodes = [f"{group_uri(g)} a fin:Group ; rdfs:label {Literal(g, lang='ko').n3()} ."
+                   for g in sorted(groups)]
+    ttl = header + "\n".join(group_nodes + nodes + sorted(belongs) + sorted(issued)) + "\n"
+    review_rows = [{**item, "names": sorted(item["names"]),
+                    "bond_codes": sorted(item["bond_codes"])}
+                   for _, item in sorted(review.items())]
+    return ttl, review_rows, {"groups": len(groups), "issuers": len(standalone),
+                              "belongsToGroup": len(belongs), "issuedBy": len(issued)}
+
+
+def main():
+    with open(PROC_DIR / "company_nodes.json", encoding="utf-8") as stream:
+        companies = json.load(stream)
+    registry = CompanyRegistry()
+    # 이전 중간 JSON이 섞이지 않도록 재생성을 안내하고 중단한다.
+    for key, info in companies.items():
+        if (info.get("id") != registry.identity(key, existing=True)[0]
+                or info.get("norm") != registry.match_key(key)):
+            raise ValueError("company_nodes.json이 이전 형식입니다. 먼저 build_company_nodes를 다시 실행하세요.")
+    ttl, review, stats = build_group_lines(
+        companies, iter_bond_issuers(find_raw_file("PRBD01N001")), registry,
+    )
+    GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+    (GRAPH_DIR / "instances_group.ttl").write_text(ttl, encoding="utf-8")
+    (PROC_DIR / "unmapped_issuers.json").write_text(
+        json.dumps(review, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+    print(f"출력: {GRAPH_DIR / 'instances_group.ttl'}")
+    print(stats)
+    print(f"그룹 미확인 발행사: {len(review)}개 (data/processed/unmapped_issuers.json)")
+
+
+if __name__ == "__main__":
+    main()

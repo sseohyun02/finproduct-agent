@@ -8,6 +8,11 @@ ETF 구성종목(PDF) 수집 스크립트
 - 중간에 끊겨도 이어받기 가능 (이미 수집한 시트는 건너뜀)
 - 실패 종목은 따로 기록
 
+[2026-08 갱신] 대회측 새 데이터 반영:
+  - 마스터 파일명이 소문자로 변경(pref01n001_data.xlsx) → 경로 패턴 수정.
+  - ETF만 수집(pd_grp_no=='ETF', 1,235개). ETN(545개)은 구성종목 개념 없어 제외.
+  - 전체 재수집을 원하면 기존 etf_portfolio.xlsx를 먼저 삭제하고 실행할 것.
+
 사전 준비:
 1. pip install pykrx pandas openpyxl python-dotenv
 2. 프로젝트 루트에 .env 파일 생성 후 아래 내용 입력:
@@ -23,7 +28,7 @@ from datetime import datetime
 # ── 1. 환경변수(.env) 로드 ──────────────────────────────
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # 같은 폴더의 .env 파일을 읽어 환경변수로 등록
+    load_dotenv()
 except ImportError:
     print("python-dotenv가 없습니다. pip install python-dotenv 후 다시 실행하세요.")
     raise
@@ -35,7 +40,6 @@ if not KRX_ID or not KRX_PW:
     print("경고: .env에 KRX_ID / KRX_PW가 설정되지 않았습니다.")
     print("일부 기능(구성종목 조회)은 로그인이 필요해 실패할 수 있습니다.")
 
-# pykrx가 참조하도록 환경변수에 명시적으로 등록
 os.environ["KRX_ID"] = KRX_ID
 os.environ["KRX_PW"] = KRX_PW
 
@@ -46,16 +50,20 @@ BASE_DATE = "20260710"          # 구성종목 기준일 (확실한 영업일로
 OUTPUT_FILE = "data/raw/etf_portfolio.xlsx"   # 결과 저장 파일
 FAIL_LOG = "data/raw/etf_portfolio_fail.csv"  # 실패 종목 기록
 SLEEP_SEC = 1.5                 # 요청 간 대기(초) - IP 차단 방지
-MASTER_GLOB = "data/raw/**/PREF01N001*datarows*.xlsx"  # 국내ETF 마스터 경로 패턴
+# 새 파일명(소문자, datarows 없음) 대응: 코드 접두부만으로 매칭
+MASTER_GLOB = "data/raw/**/*ref01n001*.xlsx"
 
 
 # ── 3. 우리 데이터에서 국내 ETF 목록 뽑기 ───────────────
 def load_etf_list():
     """국내ETF 마스터에서 ETF(ETN 제외) 종목코드·이름 목록을 반환"""
-    files = glob.glob(MASTER_GLOB, recursive=True)
+    files = [f for f in glob.glob(MASTER_GLOB, recursive=True)
+             if "schema" not in f.lower()
+             and not os.path.basename(f).startswith("._")]
     if not files:
         raise FileNotFoundError(f"국내ETF 마스터 파일을 찾을 수 없습니다: {MASTER_GLOB}")
     df = pd.read_excel(files[0])
+    print(f"마스터 파일: {files[0]} ({len(df)}행)")
 
     # ETF만 (ETN 제외) - 구성종목 개념은 ETF에 해당
     if "pd_grp_no" in df.columns:
@@ -64,23 +72,20 @@ def load_etf_list():
     # 단축코드 변환: pd_itm_no_ma(A305080) -> 305080
     def to_short(ma):
         s = str(ma).strip()
-        return s[1:] if s and s[0].isalpha() else s  # 첫 글자가 알파벳이면 제거
+        return s[1:] if s and s[0].isalpha() else s
 
     df["short_code"] = df["pd_itm_no_ma"].apply(to_short)
 
-    # (단축코드, 상품명) 목록
     result = df[["short_code", "pd_nm"]].dropna().drop_duplicates("short_code")
     return list(result.itertuples(index=False, name=None))
 
 
 # ── 4. 이미 수집한 종목 확인 (이어받기용) ───────────────
 def already_done():
-    """기존 결과 파일에 있는 시트명에서 이미 수집한 단축코드를 추출"""
     if not os.path.exists(OUTPUT_FILE):
         return set()
     try:
         xl = pd.ExcelFile(OUTPUT_FILE)
-        # 시트명 형식: {code}_{짧은이름}  → 앞부분 code 추출
         return {name.split("_")[0] for name in xl.sheet_names}
     except Exception:
         return set()
@@ -96,7 +101,6 @@ def main():
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
-    # 기존 파일이 있으면 이어쓰기(append), 없으면 새로 생성(write)
     mode = "a" if os.path.exists(OUTPUT_FILE) else "w"
     writer_kwargs = {"engine": "openpyxl", "mode": mode}
     if mode == "a":
@@ -110,7 +114,6 @@ def main():
             if code in done:
                 continue
 
-            # 시트명: 코드_이름 (엑셀 시트명 31자 제한, 특수문자 제거)
             safe_name = "".join(c for c in str(name) if c.isalnum() or c in " _")[:20]
             sheet = f"{code}_{safe_name}"[:31]
 
@@ -119,7 +122,6 @@ def main():
                 if pdf is None or len(pdf) == 0:
                     raise ValueError("빈 결과")
                 pdf = pdf.reset_index()
-                # 어느 ETF의 구성종목인지 식별용 컬럼 추가
                 pdf.insert(0, "etf_code", code)
                 pdf.to_excel(writer, sheet_name=sheet, index=False)
                 success += 1
@@ -130,7 +132,6 @@ def main():
 
             time.sleep(SLEEP_SEC)
 
-    # 실패 종목 기록
     if fails:
         pd.DataFrame(fails).to_csv(FAIL_LOG, index=False, encoding="utf-8-sig")
         print(f"\n실패 {len(fails)}개 → {FAIL_LOG} 에 기록")
