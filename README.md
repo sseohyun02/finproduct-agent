@@ -24,8 +24,6 @@
 - 신한은행과 같은 그룹 회사들이 발행한 채권과, 그 회사들을 담고 있는 ETF를 알려줘.
 - 삼성전자와 SK하이닉스를 모두 보유한 국내 ETF 중 합산 비중이 30% 이하이고 총보수가 가장 낮은 상품 하나 알려줘.
 
-결과는 저장된 데이터 범위에 따라 달라집니다. 일부 ETF의 구성종목 데이터가 없으면 전체 공통 구성종목을 확정하지 않으며, 조회되지 않은 상품에 해당 관계가 없다고 단정하지 않습니다. 채권 기준일은 실제 DB에서 읽고, 다른 데이터의 기준일은 확인되지 않은 경우 미확인으로 표시합니다.
-
 ## 시스템 아키텍처
 
 ### 전체 파이프라인
@@ -45,8 +43,6 @@ flowchart TD
     E -->|시점 또는 데이터 부족| Z
     H --> I["답변 · 조회 근거 · 처리 경로 반환"]
 ```
-
-복수 상품군 요청은 상품군별로 검증·실행하므로, 지원 여부가 다르면 각 상품군의 결과와 안내를 함께 반환합니다.
 
 ### 백엔드 구성
 
@@ -68,11 +64,11 @@ flowchart TD
 
 | 분야 | 기술 스택 |
 |:---:|---|
-| **Backend** | Python, FastAPI, Uvicorn |
-| **AI / 데이터 처리** | HyperCLOVA X, OpenAI 호환 SDK, pandas, openpyxl |
-| **DB / 지식그래프** | DuckDB, rdflib, RDF/Turtle, SQL, SPARQL |
-| **데이터 수집** | pykrx |
-| **개발 / 검증** | Git, unittest, Dockerfile 기반 실행 환경 |
+| **Backend** | ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) ![Uvicorn](https://img.shields.io/badge/Uvicorn-4051B5?style=flat-square) |
+| **AI / 데이터 처리** | ![HyperCLOVA X](https://img.shields.io/badge/HyperCLOVA%20X-03C75A?style=flat-square&logo=naver&logoColor=white) ![OpenAI SDK](https://img.shields.io/badge/OpenAI%20SDK-412991?style=flat-square) ![pandas](https://img.shields.io/badge/pandas-150458?style=flat-square&logo=pandas&logoColor=white) ![openpyxl](https://img.shields.io/badge/openpyxl-217346?style=flat-square) |
+| **DB / 지식그래프** | ![DuckDB](https://img.shields.io/badge/DuckDB-FFF000?style=flat-square&logo=duckdb&logoColor=black) ![rdflib](https://img.shields.io/badge/rdflib-306998?style=flat-square) ![RDF/Turtle](https://img.shields.io/badge/RDF%2FTurtle-005A9C?style=flat-square) ![SQL](https://img.shields.io/badge/SQL-4479A1?style=flat-square) ![SPARQL](https://img.shields.io/badge/SPARQL-005A9C?style=flat-square) |
+| **데이터 수집** | ![pykrx](https://img.shields.io/badge/pykrx-3776AB?style=flat-square&logo=python&logoColor=white) |
+| **개발 / 검증** | ![Git](https://img.shields.io/badge/Git-F05032?style=flat-square&logo=git&logoColor=white) ![unittest](https://img.shields.io/badge/unittest-3776AB?style=flat-square&logo=python&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white) |
 
 ## 폴더 구조
 
@@ -106,8 +102,6 @@ flowchart TD
 ├── tests/                         # 오프라인 단위·회귀 테스트
 └── bench/                         # API 측정·결과 캐시·수동 채점 도구
 ```
-
-회사·발행사 이름과 그룹 관리 방법은 [회사 식별 관리 안내](docs/company_identity.md), 조회 검증과 출력 정책은 [질문 검증과 조회 안내](docs/query_planning.md)를 참고하세요.
 
 <details>
 <summary>설치 및 실행 방법</summary>
@@ -148,10 +142,6 @@ python -m venv fin
 .\fin\Scripts\python.exe -m uvicorn src.agent.app:app --host 127.0.0.1 --port 8000
 ```
 
-- API 문서: http://127.0.0.1:8000/docs
-- 서버 상태: http://127.0.0.1:8000/health
-- 코드나 그래프 파일 변경 후에는 서버를 재시작합니다.
-
 ### 환경 변수 설정
 
 ```dotenv
@@ -189,7 +179,5 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8000/answer' -Method Get -Body $params
 ```powershell
 .\fin\Scripts\python.exe -m unittest discover -s tests -v
 ```
-
-단위·회귀 테스트는 임시 데이터와 메모리 DB·그래프를 사용하며 CLOVA API를 호출하지 않습니다. `bench`의 서버 질의 도구는 실행 시 실제 API 호출 비용이 발생할 수 있습니다.
 
 </details>
