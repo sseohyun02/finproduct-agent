@@ -56,7 +56,7 @@ class ClovaClient:
     # =========================================================
     # 1. 의도추출
     # =========================================================
-    def extract_intent(self, question, temporal_context=None):
+    def extract_intent(self, question, temporal_context=None, validation_feedback=None):
         """질문과 시간 정보를 함께 전달해 의도 JSON을 추출."""
         system = self.intent_prompt
 
@@ -66,7 +66,14 @@ class ClovaClient:
                 + json.dumps(temporal_context, ensure_ascii=False)
             )
 
-        raw = self._chat(system, question, temperature=0.1)
+        if validation_feedback:
+            system += (
+                "\n\n이전 의도 검증 오류입니다. 원래 질문을 다시 해석해 JSON 전체를 한 번 수정하세요. "
+                "오류 조건을 임의로 삭제하지 말고 원문의 요구를 보존하세요. "
+                "지원하지 않는 요구는 unsupported_conditions에 기록하세요.\n"
+                + json.dumps(validation_feedback, ensure_ascii=False)
+            )
+        raw = self._chat(system, question, temperature=0.1, max_tokens=2048)
         return self._parse_json(raw)
     
     def _parse_json(self, text):

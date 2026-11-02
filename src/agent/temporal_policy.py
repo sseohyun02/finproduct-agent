@@ -74,6 +74,8 @@ class TemporalPolicy:
             scope = "etf_domestic"
 
         sources = {scope}
+        if intent.get("computed_filters"):
+            sources.add("holdings")
 
         # 이 관계들은 구성종목 데이터의 시점도 영향을 준다.
         for condition in intent.get("graph_conditions") or []:

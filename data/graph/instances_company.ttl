@@ -140435,3 +140435,5 @@ ex:Bond_KR6478561G55 fin:issuedBy ex:Company_블랙야크아이앤씨 .
 ex:Bond_KR6489791G21 fin:issuedBy ex:Company_한화비전 .
 ex:Bond_KR6489792G20 fin:issuedBy ex:Company_한화비전 .
 ex:Bond_KR6498101F51 fin:issuedBy ex:Company_모트렉스 .
+
+ex:HoldingsDataset fin:sourceSha256 "b28803550528b660a2d7ed1e08a649865efd9dce9a7b21afb144595a936d096d" .

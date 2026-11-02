@@ -19,3 +19,11 @@ fin/
 .DS_Store
 
 bench/*.csv
+
+# 정리한 이전 파일 경로 (다시 생성되어도 추적하지 않음)
+/bench/metrics_patch.md
+/bench/q_smoke.jsonl
+/collect_etf_pdf.py
+/count_metrics.py
+/data/dictionary/group_whitelist.json
+/data/dictionary/issuer_group_rules.json

@@ -23,6 +23,7 @@ TTL 인스턴스 생성 (2026 미래에셋 AI Festival)
 import json
 import re
 import glob
+import hashlib
 from pathlib import Path
 import openpyxl
 from rdflib import Literal
@@ -236,6 +237,10 @@ def main():
         portfolio_path,
         bond_path,
     )
+
+    # 단위 검증 메타데이터를 특정 원본 버전에 연결한다. 단위 자체를 추정하지 않는다.
+    source_hash = hashlib.sha256(Path(portfolio_path).read_bytes()).hexdigest()
+    header += f'ex:HoldingsDataset fin:sourceSha256 "{source_hash}" .\n'
 
     GRAPH_DIR.mkdir(parents=True, exist_ok=True)
     out_path = GRAPH_DIR / "instances_company.ttl"

@@ -13,16 +13,24 @@
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from temporal_policy import TemporalPolicy
+if __package__:
+    from .temporal_policy import TemporalPolicy
+    from .query_builder import QueryBuilder
+    from .intent_validation import normalize_intent, IntentError
+else:
+    from temporal_policy import TemporalPolicy
+    from query_builder import QueryBuilder
+    from intent_validation import normalize_intent, IntentError
 
 
 class FinancialAgent:
     def __init__(self, concepts_path, unanswerable_path, intent_prompt_path,
                  graph=None, duckdb_con=None, clova=None):
-        from query_builder import QueryBuilder
         self.qb = QueryBuilder(concepts_path, graph=graph, duckdb_con=duckdb_con)
-        self.concepts = json.load(open(concepts_path, encoding="utf-8"))
-        self.unanswerable = json.load(open(unanswerable_path, encoding="utf-8"))
+        with open(concepts_path, encoding="utf-8") as stream:
+            self.concepts = json.load(stream)
+        with open(unanswerable_path, encoding="utf-8") as stream:
+            self.unanswerable = json.load(stream)
         self.clova = clova  # ClovaClient (None이면 의도추출/답변 생략)
         self.temporal_policy = TemporalPolicy(duckdb_con)
 
@@ -46,7 +54,7 @@ class FinancialAgent:
         if rtype == "clarify":
             return self._build_clarify(result.get("concepts", []))
         if rtype == "intersection":
-            lines = [f"{name}: {cnt}개 상품이 보유" for name, cnt in result["data"][:10]]
+            lines = [f"{name}: {cnt}개 상품이 보유" for name, cnt in result["data"]]
             return "공통 보유 종목:\n" + "\n".join(lines)
         elif rtype == "table":
             df = result["data"]
@@ -91,7 +99,7 @@ class FinancialAgent:
         """DataFrame을 사람이 읽기 쉬운 텍스트로. 컬럼 한글화 + 단위변환."""
         # 컬럼 한글 라벨 + 포맷터
         col_labels = {
-            "pd_nm": "상품명", "itm_nm": "상품명", "PD_NM": "상품명",
+            "product_code": "상품코드", "srfc_irt": "표면금리(%)", "pd_nm": "상품명", "itm_nm": "상품명", "PD_NM": "상품명",
             "cu_fund_mgmt_co": "운용사", "cu_charge_rt": "총보수(%)",
             "pd_risk_nm": "위험등급", "risk_grade_num": "위험등급(숫자)",
             "du_last_aum": "순자산", "fd_nast_suma": "순자산", "ISU_BAL_AMT": "발행잔액",
@@ -113,7 +121,7 @@ class FinancialAgent:
                 return str(v)
 
         lines = []
-        for idx, row in df.head(10).iterrows():
+        for idx, row in df.iterrows():
             parts = []
             for col in df.columns:
                 label = col_labels.get(col, col)
@@ -195,14 +203,17 @@ class FinancialAgent:
         ]
 
         for index, row in enumerate(result["data"], start=1):
+            weight_text = (f"비중: {row['weight']}%" if result.get("weight_unit") == "percent"
+                           else f"비중 저장값: {row['weight']}")
             lines.append(
                 f"{index}. {row['company_name']} "
-                f"— 비중 저장값: {row['weight']}"
+                f"— {weight_text}"
             )
 
         lines.extend([
             "",
-            "비중 단위가 확인되지 않아 저장된 숫자를 그대로 표시했습니다.",
+            ("원본에서 확인한 퍼센트 단위로 표시했습니다." if result.get("weight_unit") == "percent"
+             else "비중 단위가 확인되지 않아 저장된 숫자를 그대로 표시했습니다."),
             result["coverage_note"],
             self.temporal_policy.answer_note(intent),
         ])
@@ -244,103 +255,116 @@ class FinancialAgent:
             timezone(timedelta(hours=9))
         ).date().isoformat()
 
-        intent = self.clova.extract_intent(
-            question,
-            temporal_context={
-                "current_date": today,
-                "snapshot_dates": self.temporal_policy.context(),
-            },
-        )
-        if not isinstance(intent, dict) or not intent:
-            # 질문에 상품군 키워드가 있으면 "조건 파악했으나 결과 없음"으로 구분,
-            # 없으면 일반 가이드. (의도추출 실패와 빈 결과를 다르게 안내)
-            detected_scope = None
-            for kw, label in [("채권", "채권"), ("ETF", "ETF"), ("etf", "ETF"),
-                              ("펀드", "펀드"), ("펀드", "펀드")]:
-                if kw in question:
-                    detected_scope = label
-                    break
-            if detected_scope:
-                guide = (f"'{detected_scope}' 관련 질문으로 이해했으나, 구체적인 조건을 "
-                         f"파악하지 못했습니다. 어떤 기준(수익률·보수·위험등급·규모 등)으로 "
-                         f"찾으실지 조금 더 구체적으로 알려주세요.")
-                trace = (f"질문에서 상품군({detected_scope})은 감지했으나, "
-                         f"구체적 필터/관계 조건을 intent로 변환하지 못함.")
-            else:
-                guide = ("질문을 더 구체적으로 해주시면 정확히 안내할 수 있습니다. "
-                         "예를 들어 어떤 상품군(채권·ETF·펀드)인지, "
-                         "어떤 기준(수익률·보수·위험등급·규모 등)으로 찾으실지 알려주세요. "
-                         "예: '보수 낮은 미국 ETF', '위험등급 높은 채권', '규모 큰 주식형 펀드'")
-                trace = "질문 의도를 특정 조건으로 변환하지 못함(주관적·모호한 표현일 수 있음)."
-            return {"status": "error", "answer": guide,
-                    "retrieved_context": "", "think_trace": trace}
-        
-        temporal_result = self.temporal_policy.check(intent)
-
-        if temporal_result is not None:
-            status, message = temporal_result
-
-            return {
-                "status": status,
-                "answer": message,
-                "intent": intent,
-                "retrieved_context": "",
-                "think_trace": "질문의 시간 조건과 데이터 제공 범위를 확인함.",
-            }
-        
+        context = {"current_date": today, "snapshot_dates": self.temporal_policy.context()}
+        feedback = None
+        intent = None
+        result = None
+        for attempt in range(2):
+            kwargs = {"temporal_context": context}
+            if feedback:
+                kwargs["validation_feedback"] = feedback
+            try:
+                raw = self.clova.extract_intent(question, **kwargs)
+                if isinstance(raw, dict) and "temporal" not in raw:
+                    raise IntentError("필수 시점 조건 temporal이 누락되었습니다. 원문에서 시점을 다시 해석하세요.")
+                intent = normalize_intent(raw)
+                # 시점 검사는 전체 요청이 아니라 각 상품군의 실제 조회 계획에 적용한다.
+                result = self.qb.execute(intent, temporal_policy=self.temporal_policy)
+                parts = result.get("results", [result])
+                failures = [r["message"] for r in parts if r.get("status") == "invalid_intent"]
+                if failures and attempt == 0:
+                    feedback = {"previous_intent": raw, "errors": failures}
+                    continue
+                break
+            except IntentError as exc:
+                if exc.status == "invalid_intent" and attempt == 0:
+                    feedback = {"previous_intent": raw, "errors": [str(exc)]}
+                    continue
+                result = {"type": "problem", "status": exc.status, "message": str(exc), "trace": []}
+                break
+            except Exception as exc:
+                result = {"type": "problem", "status": "error", "message": f"의도 분석 또는 조회 중 오류가 발생했습니다: {exc}", "trace": []}
+                break
         if verbose:
             print("의도:", json.dumps(intent, ensure_ascii=False))
+        return self._render_result(result, intent)
 
-        # [3][4] 쿼리빌더 + 실행
-        try:
-            result = self.qb.execute(intent)
-        except Exception as e:
-            return {"status": "error", "answer": f"쿼리 실행 오류: {e}", "intent": intent,
-                    "retrieved_context": "", "think_trace": f"쿼리 실행 중 오류: {e}"}
-        
-        # 구성종목 결과는 전용 응답으로 처리
-        if result.get("type") == "holdings":
-            return self._build_holdings_response(result, intent)
-        
-        # [5] 답변생성
+    @staticmethod
+    def _count_notice(result):
+        count = result.get("returned_count", 0)
+        if not count:
+            if result.get("has_more"):
+                return "전체 표시 개수 제한에 따라 이 상품군의 결과는 표시하지 않았습니다. 조회 가능한 결과는 있습니다."
+            return "저장된 데이터에서 조건에 일치하는 상품이 조회되지 않았습니다."
+        if not result.get("default_limit", False):
+            if count < result.get("limit", count) and not result.get("has_more") and not result.get("total_limit_applied"):
+                return f"요청하신 {result['limit']}개보다 적은 {count}개가 조건에 맞아, 조회된 상품을 모두 보여드립니다."
+            return ""
+        if result.get("has_more"):
+            return f"조건에 맞는 상품이 여러 개 있어 우선 {count}개를 보여드립니다."
+        return f"조건에 맞는 결과 {count}개를 찾았습니다."
+
+    def _render_part(self, result, intent):
+        if result["type"] == "problem":
+            if result["status"] == "invalid_intent":
+                return "질문의 검색 조건을 일관되게 해석하지 못해 조회를 중단했습니다. 조건 일부를 생략한 검색 결과는 제공하지 않았습니다."
+            return result["message"]
+        if result["type"] == "holdings":
+            response = self._build_holdings_response(result, intent)
+            if result.get("status") != "ok":
+                return response["answer"]
+            return "\n".join(text for text in [self._count_notice(result), response["answer"]] if text)
         summary = self.summarize_result(result, intent)
+        note = self.temporal_policy.answer_note(intent).split(". 조회 결과는 저장된 데이터이며", 1)[0]
+        parts = [self._count_notice(result)]
+        if result.get("returned_count"):
+            parts.append(summary)
+        if result.get("default_limit") and result.get("returned_count") and result["type"] == "table":
+            sort = intent.get("sort")
+            if sort:
+                direction = "낮은" if sort["order"] == "asc" else "높은"
+                parts[0] += f" {sort['concept']} 기준으로 {direction} 순서부터 보여드립니다."
+            else:
+                parts[0] += " 보기 편하도록 상품코드순으로 정리했습니다."
+        if result.get("coverage_note"):
+            parts.append(result["coverage_note"])
+        parts.append(note)
+        return "\n\n".join(part for part in parts if part)
 
-        # clarify(상품군 불명확): 개요+되묻기를 그대로 답으로. CLOVA 거치지 않음(왜곡 방지).
-        if result.get("type") == "clarify":
-            return {"status": "clarify", "answer": summary,
-                    "intent": intent, "result_type": "clarify",
-                    "retrieved_context": "",
-                    "think_trace": "상품군이 특정되지 않아(scope=all) 상품군별 개요를 안내하고 되물음."}
-
-        # 빈 결과(의도는 파악됐으나 조건에 맞는 데이터 없음):
-        # CLOVA를 거치면 엉뚱한 안내(가이드/투자조언)를 생성할 수 있으므로 직접 안내.
-        if self._is_empty_result(result):
-            trace = self._build_think_trace(intent, result)
-            trace += "\n→ 조건에 맞는 상품이 조회되지 않음 (의도는 정상 파악됨)."
-            return {"status": "no_result", "answer": summary,
-                    "intent": intent, "result_type": result.get("type"),
-                    "sql": result.get("sql"),
-                    "retrieved_context": self._build_retrieved_context(result, summary),
-                    "think_trace": trace}
-
-        notes = [
-            self.get_answer_note(intent),
-            self.temporal_policy.answer_note(intent),
-        ]
-        note = " ".join(item for item in notes if item)
-
-        answer_text = self.clova.generate_answer(question, summary, note)
-        
-        # retrieved_context: 답변 근거가 된 실제 조회 데이터
-        retrieved_context = self._build_retrieved_context(result, summary)
-        # think_trace: 의도추출 -> 쿼리 -> 실행 과정(그래프 활용 어필)
-        think_trace = self._build_think_trace(intent, result)
-
-        return {"status": "ok", "answer": answer_text,
-                "intent": intent, "result_type": result.get("type"),
-                "sql": result.get("sql"),
-                "retrieved_context": retrieved_context,
-                "think_trace": think_trace}
+    def _render_result(self, result, intent):
+        intent = intent or {}
+        labels = {"bond": "채권", "etf_domestic": "국내 ETF", "etf_overseas": "해외 ETF", "fund": "펀드"}
+        results = result.get("results", [result])
+        answers, contexts, traces = [], [], []
+        if len(results) > 1:
+            if intent.get("limit_mode") == "total":
+                answers.append(f"요청하신 전체 {intent['limit']}개 한도에 맞춰 상품군별 결과를 번갈아 골라 보여드립니다.")
+            elif intent.get("limit") is None:
+                answers.append("상품군별로 최대 3개씩 보여드립니다.")
+        if intent.get("purpose") == "group_exposure":
+            answers.append("같은 그룹 회사가 발행한 채권과 해당 회사들을 구성종목으로 담은 ETF를 찾았습니다. 추가로 매수하면 같은 그룹에 투자하는 금액이 늘어날 수 있는 상품들입니다.")
+        for part in results:
+            scope = part.get("scope") or intent.get("product_scope")
+            plan = dict(intent, product_scope=scope, product_scopes=[scope])
+            text = self._render_part(part, plan)
+            title = labels.get(scope, "조회")
+            answers.append((title + "\n" if len(results) > 1 else "") + text)
+            contexts.append(title + "\n" + self._build_retrieved_context(part, text))
+            traces.append(title + "\n" + self._build_think_trace(plan, part))
+        statuses = [r.get("status", "ok") for r in results]
+        if len(results) == 1:
+            status = statuses[0]
+            if status == "ok" and not result.get("returned_count", 0):
+                status = "no_result"
+        else:
+            status = "ok" if all(s == "ok" for s in statuses) else "partial"
+            if len(set(statuses)) == 1:
+                status = statuses[0]
+            if all(s == "ok" for s in statuses) and not any(r.get("returned_count") for r in results):
+                status = "no_result"
+        return {"status": status, "answer": "\n\n".join(answers), "intent": intent,
+                "result_type": result["type"], "retrieved_context": "\n\n".join(contexts),
+                "think_trace": "\n\n".join(traces), "sql": result.get("sql")}
 
     def _build_retrieved_context(self, result, summary):
         """답변 근거가 된 데이터를 문자열로. 대회 retrieved_context 필드용."""
@@ -365,40 +389,11 @@ class FinancialAgent:
         return False
 
     def _build_think_trace(self, intent, result):
-        """의도추출->쿼리->실행 추론 과정. 그래프+SQL 하이브리드 활용을 드러냄."""
-        steps = []
-        scope = intent.get("product_scope")
-        steps.append(f"1) 질문 의도 분석: 대상 상품군='{scope}'")
-
-        graph_conds = intent.get("graph_conditions", [])
-        if graph_conds:
-            rel_desc = ", ".join(
-                f"{c['relation']}({c['target']})" for c in graph_conds
-            )
-            steps.append(f"2) 지식그래프 관계 순회 필요: {rel_desc} "
-                         f"→ SPARQL로 그래프에서 관련 상품/회사 탐색")
-        else:
-            steps.append("2) 관계 순회 불필요(속성 필터만) → SQL 직접 조회")
-
-        sql_filters = intent.get("sql_filters", [])
-        if sql_filters:
-            f_desc = ", ".join(
-                f"{f['concept']} {f['operator']} {f['value']}" for f in sql_filters
-            )
-            steps.append(f"3) 속성 필터: {f_desc} → DuckDB SQL 조건 적용")
-
-        sort = intent.get("sort")
-        if sort:
-            steps.append(f"4) 정렬: {sort['concept']} {sort['order']}")
-
-        agg = intent.get("aggregation")
-        if agg:
-            steps.append(f"5) 집계: {agg['type']} (그래프 상 여러 상품의 공통 관계 계산)")
-
-        # 그래프+SQL 결합 여부
-        if graph_conds and (sql_filters or sort):
-            steps.append("→ 그래프 순회 결과(상품 코드)를 SQL 조건과 결합해 최종 필터링")
-
+        steps = list(result.get("trace", []))
+        if result.get("status", "ok") != "ok":
+            steps.append(f"중단 상태: {result.get('status')}; {result.get('message', '')}")
+        elif not result.get("returned_count") and not result.get("has_more"):
+            steps.append("실행된 조건의 조회 결과가 0건입니다. 원본 전체에 해당 상품이 없다는 뜻은 아닙니다.")
         return "\n".join(steps)
 
 

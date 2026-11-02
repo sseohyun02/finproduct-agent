@@ -95,6 +95,9 @@ curl "http://localhost:8000/answer?question_id=Q-001&question=위험등급 5 이
 회사·발행사 ID와 그룹 소속은 `data/dictionary/company_registry.json`에서 관리한다.
 대응표 편집 원칙과 JSON·TTL 재생성 순서는 [회사 식별 관리 안내](docs/company_identity.md)를 참고한다.
 
+복수 상품군 조회, 미지원 조건 검증, 기본 3개 출력 정책은
+[질문 검증과 조회 안내](docs/query_planning.md)를 참고한다.
+
 데이터 기준일: 2026-07-11 스냅샷. 평가 시 기준 데이터는 주최 측 제공 데이터를 우선한다.
 
 ## 디렉터리 구조

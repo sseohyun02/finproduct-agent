@@ -17,11 +17,15 @@
 모든 출력에 temporal을 반드시 포함한다.
 
 {
-  "product_scope": "bond",
+  "product_scopes": ["bond"],
   "graph_conditions": [],
   "sql_filters": [],
   "sort": null,
-  "limit": 10,
+  "limit": null,
+  "limit_mode": "per_scope",
+  "computed_filters": [],
+  "purpose": "search",
+  "unsupported_conditions": [],
   "aggregation": null,
   "temporal": {
     "kind": "snapshot",
@@ -32,8 +36,9 @@
 
 각 필드의 허용 형식:
 
-- product_scope:
-  bond, etf_domestic, etf_overseas, fund, etf, all 중 하나.
+- product_scopes:
+  bond, etf_domestic, etf_overseas, fund 중 하나 이상의 배열.
+  여러 상품군을 명시하면 모두 포함한다. 정말 불명확한 경우에만 []로 하고 clarification_reason을 기록한다.
 
 - graph_conditions:
   관계 조건 배열. 조건이 없으면 [].
@@ -55,11 +60,13 @@
   period: "1년", "3개월" 등 질문에 나온 기간. 없으면 null.
 
 - limit:
-  양의 정수. 기본값 10.
+  사용자가 개수를 지정하지 않으면 반드시 null. 서버가 상품군별 최대 3개를 적용한다.
+  명시한 개수는 그대로 기록. 최저·최고 한 상품을 요구하면 1.
+- limit_mode: per_scope(기본) 또는 total(합쳐서 N개라고 명시한 경우).
 
 - aggregation:
   집계가 없으면 null.
-  있으면 {"type": "count"}, {"type": "intersection"},
+  있으면 {"type": "intersection"},
   {"type": "list"} 중 하나.
 
 - temporal:
@@ -67,16 +74,30 @@
   kind: snapshot, scheduled, observed, prediction, realtime, unclear.
   날짜는 YYYY-MM-DD 문자열 또는 null.
 
+## 계산 조건과 미지원 요구
+
+- computed_filters는 계산 조건 배열이다. 기본 [].
+- 여러 회사를 모두 보유하고 합산 비중이 일정 % 이하인 ETF:
+  {"type":"holding_weight_sum","companies":["질문에 나온 회사 A","질문에 나온 회사 B"],"operator":"lte","value":30,"unit":"percent"}
+  각 회사의 holds reverse 조건도 기록한다. 비중 합산은 sql_filters에 넣지 않는다.
+  companies 배열은 두 회사에 한정되지 않는다. 중복 별칭은 서버가 회사 ID로 통합한다.
+- 표현할 수 없는 조건(미지원 부정/제외/포트폴리오 최적화 등)은 unsupported_conditions에
+  원문의 요구를 기록한다. 지원하는 조건만 남기고 나머지를 생략하지 않는다.
+- 관계 target에는 null, None, 빈 문자열을 쓰지 않는다.
+- purpose는 search 또는 group_exposure. output_fields는 생성하지 않는다.
+
 ## 판단 규칙
 
-### product_scope: 상품군
+### product_scopes: 상품군
 
 - "채권"은 bond.
 - "ETF"는 국내를 기본으로 etf_domestic.
 - 해외 상장 ETF를 명시하면 etf_overseas.
 - "미국에 투자하는 ETF"만으로 해외 상장 ETF라고 판단하지 않는다.
 - "펀드"는 fund.
-- 상품군을 특정하기 어려우면 all.
+- 상품군을 특정하기 어려우면 []. 여러 상품군을 명시한 것을 불명확으로 취급하지 않는다.
+- "채권이나 ETF"는 ["bond", "etf_domestic"]. "채권과 해외 상장 ETF"는 ["bond", "etf_overseas"].
+- 기준 회사가 국내 회사라는 이유만으로 사용자가 명시한 해외 상품군을 제외하지 않는다.
 - 그룹이나 발행사가 발행한 채권 질문은 bond.
 - ETF의 테마·구성종목 관련 질문은 보통 etf_domestic.
 
@@ -115,6 +136,13 @@
 
 - "X와 같은 그룹 계열사":
   relation=sameGroupAs, target=회사명, direction=reverse.
+  "X와 같은 그룹 회사가 발행한 채권"도 이 조건 하나다.
+  발행 주체가 관계 경로로 결정되므로 issuedBy(null)을 추가하지 않는다.
+  그룹명을 상식으로 추측해서 대체하지 않는다. 회사에서 그룹은 그래프로 확인한다.
+- "같은 그룹 노출을 늘리지 않으려면 피할 채권이나 ETF":
+  product_scopes=["bond", "etf_domestic"], purpose="group_exposure",
+  graph_conditions=[{"relation":"sameGroupAs","target":"질문의 기준 회사명","direction":"reverse"}].
+  같은 그룹 관련 상품을 찾는 요청이다. 보유 금액을 물어야 하는 비중 계산과 구분한다.
 
 관계 조건이 여러 개면 각각 기록한다.
 질문에 없는 관계를 추가하거나, 명시된 조건을 임의로 생략하지 않는다.
@@ -196,8 +224,8 @@ ARIRANG, SOL, KIWOOM, KOSEF, HANARO, UNICORN, KoAct.
 ### limit: 결과 개수
 
 - "top5", "상위 5개", "5개": 5.
-- "가장 ~한": 1.
-- 명시하지 않으면 10.
+- "가장 ~한 상품 하나"처럼 단일 최상위 상품 요구: 1. "높은 순으로" 같은 정렬만으로는 1로 제한하지 않는다. 명시한 개수가 있으면 그 개수를 우선한다.
+- 명시하지 않으면 반드시 null. 서버에서 상품군별 최대 3개를 적용한다.
 
 ### aggregation: 집계
 
@@ -205,7 +233,7 @@ ARIRANG, SOL, KIWOOM, KOSEF, HANARO, UNICORN, KoAct.
   {"type":"intersection"}
 
 - "몇 개", "개수":
-  {"type":"count"}
+  현재 총개수 집계는 지원하지 않으므로 unsupported_conditions에 해당 요구를 기록한다.
 
 - 일반 상품 검색:
   null.
@@ -290,51 +318,51 @@ start_date와 end_date는 null.
 
 질문: "위험등급 5등급 이상 안전한 채권 알려줘"
 
-{"product_scope":"bond","graph_conditions":[],"sql_filters":[{"concept":"위험등급","operator":"gte","value":5}],"sort":null,"limit":10,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[],"sql_filters":[{"concept":"위험등급","operator":"gte","value":5}],"sort":null,"limit":null,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["bond"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "삼성전자 담은 ETF 중에 보수 제일 낮은 거 5개"
 
-{"product_scope":"etf_domestic","graph_conditions":[{"relation":"holds","target":"삼성전자","direction":"reverse"}],"sql_filters":[],"sort":{"concept":"총보수","order":"asc","period":null},"limit":5,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[{"relation":"holds","target":"삼성전자","direction":"reverse"}],"sql_filters":[],"sort":{"concept":"총보수","order":"asc","period":null},"limit":5,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "신한금융그룹이 발행한 채권"
 
-{"product_scope":"bond","graph_conditions":[{"relation":"belongsToGroup","target":"신한","direction":"reverse"}],"sql_filters":[],"sort":null,"limit":10,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[{"relation":"belongsToGroup","target":"신한","direction":"reverse"}],"sql_filters":[],"sort":null,"limit":null,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["bond"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "반도체 테마 ETF들이 공통으로 담은 종목이 뭐야"
 
-{"product_scope":"etf_domestic","graph_conditions":[{"relation":"hasTheme","target":"반도체","direction":"reverse"}],"sql_filters":[],"sort":null,"limit":10,"aggregation":{"type":"intersection"},"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[{"relation":"hasTheme","target":"반도체","direction":"reverse"}],"sql_filters":[],"sort":null,"limit":null,"aggregation":{"type":"intersection"},"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "미국에 투자하는 저렴한 ETF 3개"
 
-{"product_scope":"etf_domestic","graph_conditions":[],"sql_filters":[{"concept":"투자지역","operator":"eq","value":"미국"}],"sort":{"concept":"총보수","order":"asc","period":null},"limit":3,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[],"sql_filters":[{"concept":"투자지역","operator":"eq","value":"미국"}],"sort":{"concept":"총보수","order":"asc","period":null},"limit":3,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "미래에셋에서 운용하는 국내 ETF 알려줘"
 
-{"product_scope":"etf_domestic","graph_conditions":[],"sql_filters":[{"concept":"운용사","operator":"eq","value":"미래에셋"}],"sort":null,"limit":10,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[],"sql_filters":[{"concept":"운용사","operator":"eq","value":"미래에셋"}],"sort":null,"limit":null,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "내년에 수익률이 가장 높을 ETF는?"
 
-{"product_scope":"etf_domestic","graph_conditions":[],"sql_filters":[],"sort":null,"limit":1,"aggregation":null,"temporal":{"kind":"prediction","start_date":null,"end_date":null}}
+{"graph_conditions":[],"sql_filters":[],"sort":null,"limit":1,"aggregation":null,"temporal":{"kind":"prediction","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "2026년 8월 21일 기준 채권 수익률 알려줘"
 
-{"product_scope":"bond","graph_conditions":[],"sql_filters":[],"sort":null,"limit":10,"aggregation":null,"temporal":{"kind":"observed","start_date":"2026-08-21","end_date":"2026-08-21"}}
+{"graph_conditions":[],"sql_filters":[],"sort":null,"limit":null,"aggregation":null,"temporal":{"kind":"observed","start_date":"2026-08-21","end_date":"2026-08-21"},"product_scopes":["bond"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "실시간 채권 가격 알려줘"
 
-{"product_scope":"bond","graph_conditions":[],"sql_filters":[],"sort":null,"limit":10,"aggregation":null,"temporal":{"kind":"realtime","start_date":null,"end_date":null}}
+{"graph_conditions":[],"sql_filters":[],"sort":null,"limit":null,"aggregation":null,"temporal":{"kind":"realtime","start_date":null,"end_date":null},"product_scopes":["bond"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "069500 ETF의 구성종목 알려줘"
 
-{"product_scope":"etf_domestic","graph_conditions":[{"relation":"holds","target":"069500","direction":"forward"}],"sql_filters":[],"sort":null,"limit":10,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[{"relation":"holds","target":"069500","direction":"forward"}],"sql_filters":[],"sort":null,"limit":null,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "069500 ETF가 보유한 종목 중 비중 높은 순으로 5개 알려줘"
 
-{"product_scope":"etf_domestic","graph_conditions":[{"relation":"holds","target":"069500","direction":"forward"}],"sql_filters":[],"sort":{"concept":"보유비중","order":"desc","period":null},"limit":5,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[{"relation":"holds","target":"069500","direction":"forward"}],"sql_filters":[],"sort":{"concept":"보유비중","order":"desc","period":null},"limit":5,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 질문: "KODEX 200 ETF의 구성종목과 비중 알려줘"
 
-{"product_scope":"etf_domestic","graph_conditions":[{"relation":"holds","target":"KODEX 200","direction":"forward"}],"sql_filters":[],"sort":null,"limit":10,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+{"graph_conditions":[{"relation":"holds","target":"KODEX 200","direction":"forward"}],"sql_filters":[],"sort":null,"limit":null,"aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null},"product_scopes":["etf_domestic"],"limit_mode":"per_scope","computed_filters":[]}
 
 ## 주의사항
 
@@ -346,3 +374,11 @@ start_date와 end_date는 null.
 - 실제 노드 존재 여부나 검색 성공 여부를 추측하지 않는다.
 - 시간·미래예측 질문은 temporal로 분류한다.
 - 데이터 기준일과의 비교 및 실시간 제공 가능 여부는 실행 코드가 판단한다.
+
+### 복수 상품군 예시
+질문: "신한은행과 같은 그룹에 노출되는 채권이나 ETF를 알려줘"
+{"product_scopes":["bond","etf_domestic"],"graph_conditions":[{"relation":"sameGroupAs","target":"신한은행","direction":"reverse"}],"sql_filters":[],"computed_filters":[],"sort":null,"limit":null,"limit_mode":"per_scope","purpose":"group_exposure","aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+
+### 복수 회사 비중 예시
+질문: "삼성전자와 SK하이닉스를 모두 담고 합산 비중 30% 이하인 ETF 중 총보수가 가장 낮은 상품"
+{"product_scopes":["etf_domestic"],"graph_conditions":[{"relation":"holds","target":"삼성전자","direction":"reverse"},{"relation":"holds","target":"SK하이닉스","direction":"reverse"}],"sql_filters":[],"computed_filters":[{"type":"holding_weight_sum","companies":["삼성전자","SK하이닉스"],"operator":"lte","value":30,"unit":"percent"}],"sort":{"concept":"총보수","order":"asc","period":null},"limit":1,"limit_mode":"per_scope","aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}

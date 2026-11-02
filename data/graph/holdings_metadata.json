@@ -1,0 +1,51 @@
+{
+  "weight_unit": "percent",
+  "decimal_places": 2,
+  "source_sha256": "b28803550528b660a2d7ed1e08a649865efd9dce9a7b21afb144595a936d096d",
+  "evidence": "pykrx COMPST_RTO → 비중 → Excel 일곱 번째 열 → fin:weight 무변환 경로 확인. 원본 시가총액/시트별 시가총액 합계×100과 비중을 독립 대조. 원본과 그래프 보유내역 전수 일치.",
+  "sheet_count": 1137,
+  "matched_holdings": 26528,
+  "reconciled_sheet_count": 365,
+  "reconciled_samples": [
+    {
+      "sheet": "0000Z0_KB RISE 바이오TOP10액티브증",
+      "sum_percent": 100.00999927520752,
+      "max_percentage_point_error": 0.004925220604548475
+    },
+    {
+      "sheet": "0007N0_iM에셋 아이엠에셋 200증권상장지수",
+      "sum_percent": 100.00000138022006,
+      "max_percentage_point_error": 0.004996340627870119
+    },
+    {
+      "sheet": "0094M0_KB RISE 코리아밸류업위클리고정커",
+      "sum_percent": 99.96999950148165,
+      "max_percentage_point_error": 0.0048859291074453415
+    },
+    {
+      "sheet": "0098N0_한화 PLUS 자사주매입고배당주증권상",
+      "sum_percent": 99.990001142025,
+      "max_percentage_point_error": 0.004993655684469633
+    },
+    {
+      "sheet": "0101N0_KB RISE AI전력인프라증권상장지",
+      "sum_percent": 99.98999953269958,
+      "max_percentage_point_error": 0.004945200812369599
+    }
+  ],
+  "max_two_decimal_storage_error": 1.8310546892053026e-06,
+  "examples": [
+    {
+      "sheet": "069500_삼성 KODEX200 증권상장지수투자",
+      "company": "삼성전자",
+      "stored_weight": 33.02999877929688,
+      "percentage": 33.03
+    },
+    {
+      "sheet": "069500_삼성 KODEX200 증권상장지수투자",
+      "company": "SK하이닉스",
+      "stored_weight": 30.01000022888184,
+      "percentage": 30.01
+    }
+  ]
+}

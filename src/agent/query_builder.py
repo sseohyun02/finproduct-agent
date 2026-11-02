@@ -25,6 +25,8 @@ from pathlib import Path
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.graph.company_identity import CompanyRegistry
+from src.agent.intent_validation import IntentError
+from src.agent.query_execution import execute_intent, verified_weight_metadata
 
 
 class QueryBuilder:
@@ -159,13 +161,16 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         return codes
 
     def build_intersection(self, cond):
-        """반도체 테마 ETF들이 '공통 보유'한 회사 (교집합)."""
-        target = cond["target"]
-        q = self.PREFIX + f"""SELECT ?cn (COUNT(DISTINCT ?p) as ?n) WHERE {{
-            ?p fin:hasTheme ex:Theme_{self._uri(target)} .
-            ?p fin:holds ?c . ?c rdfs:label ?cn .
-        }} GROUP BY ?cn ORDER BY DESC(?n)"""
-        return [(str(r[0]), int(r[1])) for r in self.graph.query(q)]
+        """지정 테마 ETF 전체에 공통으로 포함된 회사만 반환한다."""
+        from rdflib import Namespace
+        from rdflib.namespace import RDFS
+        fin = Namespace("http://mirae-agent.example/ontology#")
+        ex = Namespace("http://mirae-agent.example/data#")
+        products = set(self.graph.subjects(fin.hasTheme, ex[f"Theme_{self._uri(cond['target'])}"]))
+        if not products:
+            return []
+        common = set.intersection(*(set(self.graph.objects(p, fin.holds)) for p in products))
+        return sorted((str(self.graph.value(c, RDFS.label) or c), len(products)) for c in common)
 
     def _uri(self, name):
         """회사/테마/그룹명 -> URI 지역명 (한글유지, 특수문자 치환)."""
@@ -266,7 +271,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
 
         # 출력 컬럼: 상품군별 핵심만 (SELECT * 지양)
         cols = self.output_columns.get(scope)
-        select_cols = cols if cols else ["*"]
+        select_cols = [f"{code_expr} AS product_code", *(cols if cols else ["*"])]
         where = ["row_valid = true"]  # 불량행 제외
 
         # SQL 필터
@@ -275,10 +280,10 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
             val = f["value"]
 
             # 브랜드 감지: 운용사/상품명 필터 값이 브랜드(TIGER/KODEX 등)면 상품명 LIKE로
-            if isinstance(val, str) and val in self.brand_aliases:
+            if concept in {"운용사", "상품명"} and f["operator"] in {"eq", "like"} and isinstance(val, str) and val in self.brand_aliases:
                 name_col = self.resolve_column("상품명", scope)
                 if name_col:
-                    where.append(f"{name_col} LIKE '%{val}%'")
+                    where.append(f"{name_col} LIKE {self._sql_literal('%' + val + '%')}")
                     continue
 
             # 특수 처리 개념(환헤지·신용등급)은 col 없이도 _filter_clause에서 직접 처리
@@ -290,7 +295,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
 
             col = self.resolve_column(concept, scope)
             if not col:
-                continue  # 이 상품군엔 없는 개념
+                raise IntentError(f"{scope}에서는 {concept} 조건을 처리할 수 없습니다.", "unsupported")
             op = f["operator"]
             where.append(self._filter_clause(col, op, val, concept, scope))
 
@@ -299,81 +304,98 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
             if not restrict_codes:
                 where.append("1=0")  # 그래프 결과 없음 -> 빈 결과
             else:
-                codes_str = ",".join(f"'{c}'" for c in restrict_codes)
+                codes_str = ",".join(self._sql_literal(c) for c in sorted(restrict_codes))
                 where.append(f"{code_expr} IN ({codes_str})")
 
-        sql = f"SELECT {', '.join(select_cols)} FROM {table}"
+        sql = f"SELECT DISTINCT {', '.join(select_cols)} FROM {table}"
         if where:
             sql += " WHERE " + " AND ".join(where)
 
-        # 정렬
         sort = intent.get("sort")
         if sort:
             sort_col = self.resolve_column(sort["concept"], scope)
-            if sort_col:
-                # 수익률은 기간 컬럼
-                if sort["concept"] == "수익률" and sort.get("period"):
-                    sort_col = self._period_column(sort["period"], scope) or sort_col
-                order = sort["order"].upper()
-                # 2차 정렬: 동일값 많은 경우 순자산 desc로 안정화
-                aum_col = {"etf_domestic": "du_last_aum", "etf_overseas": "du_last_aum",
-                           "bond": "isu_bal_amt", "fund": "fd_nast_suma"}.get(scope)
-                if aum_col and aum_col != sort_col:
-                    sql += f" ORDER BY {sort_col} {order}, {aum_col} DESC"
-                else:
-                    sql += f" ORDER BY {sort_col} {order}"
-
-        sql += f" LIMIT {intent.get('limit', 10)}"
+            if not sort_col or sort.get("order") not in {"asc", "desc"}:
+                raise IntentError("지원하지 않는 정렬 조건입니다.", "unsupported")
+            if sort.get("period"):
+                sort_col = self.concepts.get("수익률", {}).get("기간별컬럼", {}).get(sort["period"], {}).get(scope)
+                if sort["concept"] != "수익률" or not sort_col:
+                    raise IntentError("지원하지 않는 기간 정렬입니다.", "unsupported")
+            if sort_col not in select_cols:
+                select_cols.append(sort_col)
+                sql = sql.replace("SELECT DISTINCT " + ", ".join(select_cols[:-1]), "SELECT DISTINCT " + ", ".join(select_cols), 1)
+            sql += f" ORDER BY {sort_col} {sort['order'].upper()} NULLS LAST, product_code ASC"
+        else:
+            sql += " ORDER BY product_code ASC"
+        limit = intent.get("limit") or 3
+        if type(limit) is not int or limit < 1:
+            raise IntentError("조회 개수는 양의 정수여야 합니다.")
+        sql += f" LIMIT {limit}"
         return sql
 
+    @staticmethod
+    def _sql_literal(value):
+        from math import isfinite
+        if type(value) in (int, float):
+            if not isfinite(value):
+                raise IntentError("유효하지 않은 숫자 조건입니다.")
+            return str(value)
+        if not isinstance(value, str):
+            raise IntentError("지원하지 않는 비교값입니다.")
+        return "'" + value.replace("'", "''") + "'"
+
     def _filter_clause(self, col, op, val, concept, scope):
-        """단일 필터 -> SQL 조건절."""
-        # 환헤지: 상품군별 처리(펀드=hdge_fd_yn='Y', 국내ETF=상품명 LIKE)
+        operators = {"gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "eq": "="}
+        literal = self._sql_literal
         if concept == "환헤지":
+            if op != "eq":
+                raise IntentError("환헤지는 eq 조건만 지원합니다.", "unsupported")
+            yes = val in ("Y", "있음", "예", "환헤지", "헤지", "H")
+            no = val in ("N", "없음", "아니오", "환노출", "UH")
+            if not (yes or no):
+                raise IntentError("환헤지 여부를 해석할 수 없습니다.")
             if scope == "fund":
-                return "hdge_fd_yn = 'Y'"
-            elif scope == "etf_domestic":
-                return "pd_nm LIKE '%(H)%'"
-            else:
-                return "1=0"  # 채권·해외ETF엔 환헤지 없음 -> 결과 없음
-
-        # 신용등급: 등급명(AAA/AA+)이면 문자컬럼, 순위비교면 숫자컬럼
-        if concept == "신용등급" and scope == "bond":
-            if isinstance(val, str) and re.match(r"^[A-D]{1,3}[+-]?$", val.strip()):
-                # 등급명 직접 지정: bond_credit_grade = 'AAA'
-                return f"bond_credit_grade = '{val.strip()}'"
-            # 순위 비교("우량한" 등): bond_credit_rank <= N (숫자 작을수록 우량)
-            sqlop = {"gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "eq": "="}.get(op, "<=")
-            return f"bond_credit_rank {sqlop} {val}"
-
-        # 만기: "N년/개월 이내" -> 잔존일수(일)로 변환
+                return "hdge_fd_yn = " + literal("Y" if yes else "N")
+            if scope == "etf_domestic":
+                return "pd_nm " + ("LIKE" if yes else "NOT LIKE") + " '%(H)%'"
+            raise IntentError("이 상품군의 환헤지 조건은 지원하지 않습니다.", "unsupported")
+        if concept == "신용등급":
+            if scope != "bond":
+                raise IntentError("채권 외 신용등급 검색은 지원하지 않습니다.", "unsupported")
+            if isinstance(val, str) and re.fullmatch(r"[A-D]{1,3}[+-]?", val.strip()):
+                grades = ["AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-",
+                          "BB+", "BB", "BB-", "B+", "B", "B-", "CCC", "CC", "C", "D"]
+                if val.strip() not in grades or op not in operators:
+                    raise IntentError("지원하지 않는 신용등급 비교입니다.", "unsupported")
+                index = grades.index(val.strip())
+                allowed = {"eq": grades[index:index+1], "gte": grades[:index+1], "gt": grades[:index],
+                           "lte": grades[index:], "lt": grades[index+1:]}[op]
+                return "bond_credit_grade IN (" + ",".join(literal(x) for x in allowed) + ")" if allowed else "1=0"
+            col = "bond_credit_rank"
         if concept == "만기":
-            days = self._maturity_to_days(val)
-            if days is not None:
-                sqlop = {"gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "eq": "<="}[op]
-                # "1년 이내"는 보통 lte/lt 의도 -> 잔존일수 <= 365
-                return f"{col} {sqlop} {days}"
-
-        if op in ("gte", "lte", "gt", "lt", "eq"):
-            sqlop = {"gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "eq": "="}[op]
-            if isinstance(val, str) and not val.isdigit():
-                # 값매핑 필요할 수 있음
+            val = self._maturity_to_days(val)
+            if val is None:
+                raise IntentError("만기 기간을 해석할 수 없습니다.")
+        if op in operators:
+            if isinstance(val, str) and not re.fullmatch(r"[+-]?\d+(?:\.\d+)?", val.strip()):
                 mapped = self.map_value(concept, scope, val)
-                if len(mapped) == 1:
-                    return f"{col} = '{mapped[0]}'"
-                else:
-                    vals = ",".join(f"'{m}'" for m in mapped)
-                    return f"{col} IN ({vals})"
-            return f"{col} {sqlop} {val}"
-        elif op == "like":
-            return f"{col} LIKE '%{val}%'"
-        elif op == "in":
-            mapped = self.map_value(concept, scope, val) if isinstance(val, str) else val
-            vals = ",".join(f"'{m}'" for m in mapped)
-            return f"{col} IN ({vals})"
-        elif op == "between":
-            return f"{col} BETWEEN '{val[0]}' AND '{val[1]}'"
-        return "1=1"
+                if op != "eq" and len(mapped) > 1:
+                    raise IntentError("여러 범주값의 크기 비교는 지원하지 않습니다.", "unsupported")
+                if len(mapped) > 1:
+                    return f"{col} IN (" + ",".join(literal(x) for x in mapped) + ")"
+                val = mapped[0]
+            return f"{col} {operators[op]} {literal(val)}"
+        if op == "like":
+            if not isinstance(val, str):
+                raise IntentError("부분일치 값은 문자열이어야 합니다.")
+            return f"{col} LIKE {literal('%' + val + '%')}"
+        if op == "in" and isinstance(val, list) and val:
+            mapped = []
+            for item in val:
+                mapped.extend(self.map_value(concept, scope, item))
+            return f"{col} IN (" + ",".join(literal(x) for x in mapped) + ")"
+        if op == "between" and isinstance(val, list) and len(val) == 2:
+            return f"{col} BETWEEN {literal(val[0])} AND {literal(val[1])}"
+        raise IntentError("지원하지 않는 필터 연산입니다.", "unsupported")
 
     def _maturity_to_days(self, val):
         """만기 표현을 잔존일수로 변환. '1년'/1->365, '6개월'->180 등."""
@@ -471,7 +493,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
 
         target = target.strip()
 
-        limit = intent.get("limit", 10)
+        limit = intent.get("limit") or 3
 
         if type(limit) is not int or limit < 1:
             return stop(
@@ -559,6 +581,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
                 "그래프에 조회 가능한 구성종목·비중 연결이 없습니다.",
             )
 
+        metadata = verified_weight_metadata(self)
         companies = {}
 
         for holding in holdings:
@@ -592,6 +615,13 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
                     "data_error",
                     "보유비중에 유효하지 않은 값이 있습니다.",
                 )
+
+            if metadata:
+                precision = metadata.get("decimal_places")
+                if type(precision) is int and 0 <= precision <= 8:
+                    weight = weight.quantize(Decimal(1).scaleb(-precision))
+                if metadata["weight_unit"] == "fraction":
+                    weight *= 100
 
             company_id = str(company)
             label = self.graph.value(company, RDFS.label)
@@ -657,7 +687,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
             "total_count": total_count,
             "returned_count": len(data),
             "sort_order": order,
-            "weight_unit": "unverified",
+            "weight_unit": "percent" if metadata else "unverified",
             "data": data,
             "coverage_note": (
                 "그래프에 저장된 회사별 보유내역입니다. "
@@ -666,75 +696,9 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
             ),
         }
         
-    def execute(self, intent):
-        """의도 JSON을 실제 조회로 연결한다."""
-        graph_conds = intent.get("graph_conditions") or []
-        agg = intent.get("aggregation")
-        scope = intent.get("product_scope")
+    def execute(self, intent, temporal_policy=None):
+        return execute_intent(self, intent, temporal_policy)
 
-        # ETF의 구성종목 조회는 별도 경로로 처리한다.
-        # 기존 상품코드 검색에 들어가면 target을 회사로 오해할 수 있다.
-        has_forward_holdings = any(
-            condition.get("relation") == "holds"
-            and condition.get("direction") == "forward"
-            for condition in graph_conds
-        )
-
-        if has_forward_holdings:
-            return self.lookup_holdings(intent)
-
-        # 상품군이 불명확하면 기존 되묻기 처리
-        if scope == "all":
-            return {
-                "type": "clarify",
-                "concepts": intent.get("sql_filters", []),
-            }
-
-        # 기존 공통 종목 처리
-        # 전체 1~7번 중 6번 작업에서 별도로 수정할 부분
-        if agg and agg.get("type") == "intersection" and graph_conds:
-            return {
-                "type": "intersection",
-                "data": self.build_intersection(graph_conds[0]),
-            }
-
-        # 관계 조건으로 상품코드 조회
-        restrict_codes = None
-
-        if graph_conds:
-            code_sets = [
-                self.build_graph_query(condition, scope)
-                for condition in graph_conds
-            ]
-
-            restrict_codes = (
-                set.intersection(*code_sets)
-                if len(code_sets) > 1
-                else code_sets[0]
-            )
-
-            restrict_codes = self.filter_codes_by_scope(
-                restrict_codes,
-                scope,
-            )
-
-        # 상품 상세 조회
-        sql = self.build_sql(intent, restrict_codes)
-
-        if self.con is not None:
-            result = self.con.execute(sql).fetchdf()
-
-            return {
-                "type": "table",
-                "sql": sql,
-                "data": result,
-            }
-
-        return {
-            "type": "sql_only",
-            "sql": sql,
-        }
-        
 if __name__ == "__main__":
     # DuckDB 없이 SQL 생성만 테스트
     qb = QueryBuilder("/home/claude/concepts.json")
