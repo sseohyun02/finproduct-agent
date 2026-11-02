@@ -1,6 +1,9 @@
 """명시적 회사 대응표로 그룹을 연결하고, 그룹 미확인 발행사도 보존한다."""
 import json
 from pathlib import Path
+import sys
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from rdflib import Literal
 
 if __package__:
@@ -18,7 +21,7 @@ else:
 
 FIN = "http://mirae-agent.example/ontology#"
 EX = "http://mirae-agent.example/data#"
-ROOT = Path(__file__).resolve().parents[2]
+from src.config import ROOT
 GRAPH_DIR = ROOT / "data/graph"
 PROC_DIR = ROOT / "data/processed"
 

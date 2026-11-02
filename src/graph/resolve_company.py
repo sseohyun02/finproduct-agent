@@ -321,18 +321,13 @@ def match_bond_issuers(bond_master_path: str, companies: dict):
 # =============================================================
 
 if __name__ == "__main__":
+    import sys
     from pathlib import Path
-    ROOT = Path(__file__).resolve().parents[2]  # src/graph/resolve_company.py -> fin-013/
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.config import ROOT  # src/graph/resolve_company.py -> fin-013/
     RAW_DIR = ROOT / "data" / "raw"
 
-    def _find(code_or_name):
-        exact = RAW_DIR / code_or_name
-        if exact.exists():
-            return str(exact)
-        cands = sorted(RAW_DIR.glob(f"*{code_or_name}*.xlsx"))
-        if cands:
-            return str(cands[0])
-        raise FileNotFoundError(f"'{code_or_name}' 파일을 {RAW_DIR}에서 찾지 못했습니다.")
+    from src.config import find_raw_file as _find
 
     PORTFOLIO = _find("etf_portfolio.xlsx")
     BOND = _find("PRBD01N001_국내채권마스터")

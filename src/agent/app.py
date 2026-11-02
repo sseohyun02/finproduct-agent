@@ -20,12 +20,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 # --- 경로 설정 (프로젝트 구조에 맞게 조정) ---
-BASE = os.getenv("AGENT_BASE", ".")
-GRAPH_DIR = os.path.join(BASE, "data", "graph")
-DICT_DIR = os.path.join(BASE, "data", "dictionary")
-DB_PATH = os.path.join(BASE, "data", "processed", "findb.duckdb")
-ONTOLOGY = os.path.join(BASE, "ontology.ttl")
-INTENT_PROMPT = os.path.join(BASE, "src", "agent", "prompts", "intent_prompt.md")
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from src.config import ROOT, GRAPH_DIR, DICT_DIR, DB_PATH
+ONTOLOGY = ROOT / "ontology.ttl"
+INTENT_PROMPT = ROOT / "src/agent/prompts/intent_prompt.md"
 
 app = FastAPI(title="금융상품 Agent", version="1.0")
 
@@ -47,8 +47,8 @@ def startup():
     global agent
     from rdflib import Graph
     import duckdb
-    from clova_client import ClovaClient
-    from agent_pipeline import FinancialAgent
+    from src.agent.clova_client import ClovaClient
+    from src.agent.agent_pipeline import FinancialAgent
 
     # 그래프 로드
     g = Graph()
@@ -57,7 +57,7 @@ def startup():
         g.parse(os.path.join(GRAPH_DIR, fn), format="turtle")
 
     # DuckDB 연결 (읽기전용)
-    con = duckdb.connect(DB_PATH, read_only=True)
+    con = duckdb.connect(str(DB_PATH), read_only=True)
 
     # CLOVA
     clova = ClovaClient(prompt_path=INTENT_PROMPT)

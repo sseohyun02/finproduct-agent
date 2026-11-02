@@ -180,7 +180,8 @@ class QueryPlanningTests(unittest.TestCase):
         self.assertEqual(result["data"]["product_code"].tolist(), ["KR000004"])
 
     def test_forward_holdings_default_three_and_intersection(self):
-        self.seed(1)
+        self.seed(2)
+        self.graph.remove((EX.Product_000002, FIN.holds, EX.Company_신한은행))
         self.graph.add((EX.Theme_테스트, RDF.type, FIN.Theme))
         for i in range(4):
             company = EX[f"Company_Test{i}"]

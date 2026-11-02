@@ -103,7 +103,7 @@ def main():
     print("  [분기 정확도 — status 자동 검증]")
     any_auto = False
     for t, want in EXPECTED_STATUS.items():
-        sub = [r for r in rows if r.get("qtype") == t]
+        sub = [r for r in rows if r.get("qtype") == t and (r.get("status") or "").strip()]
         if not sub:
             continue
         any_auto = True

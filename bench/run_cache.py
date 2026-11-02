@@ -304,6 +304,9 @@ def main():
             rows.append(rec)
             done.add(key)
             calls += 1
+            if args.max_tokens and res.get("total_tokens") is None:
+                stopped = "응답에 토큰 사용량이 없어 토큰 상한을 검증할 수 없습니다."
+                break
             if res.get("total_tokens"):
                 tokens += res["total_tokens"]
 
@@ -354,7 +357,7 @@ def main():
         print()
         print("=== 분기 효과 (LLM 호출 유무 비교) ===")
         print(f"  게이트 차단 (CLOVA 0회) : p50 {g:.2f}초")
-        print(f"  정상 답변  (CLOVA 2회) : p50 {o:.2f}초")
+        print(f"  정상 답변  (의도 분석) : p50 {o:.2f}초")
         print(f"  차이                    : {o - g:.2f}초  (LLM 왕복이 차지하는 몫)")
 
     st = {}

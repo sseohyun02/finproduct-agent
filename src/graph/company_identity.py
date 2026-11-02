@@ -2,8 +2,12 @@
 import json
 import re
 from pathlib import Path
+import sys
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data/dictionary/company_registry.json"
+from src.config import DICT_DIR
+REGISTRY_PATH = DICT_DIR / "company_registry.json"
 
 
 def safe_local(value):

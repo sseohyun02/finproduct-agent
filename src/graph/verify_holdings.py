@@ -9,13 +9,16 @@ import re
 from collections import Counter
 from decimal import Decimal
 from pathlib import Path
+import sys
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import openpyxl
 from rdflib import Graph, Namespace
 
 from .company_identity import CompanyRegistry, company_uri, safe_local
 
-ROOT = Path(__file__).resolve().parents[2]
+from src.config import ROOT
 FIN = Namespace("http://mirae-agent.example/ontology#")
 EX = Namespace("http://mirae-agent.example/data#")
 EXPECTED_HEADER = ("etf_code", "티커", "구성종목명", "계약수", "금액", "시가총액", "비중")

@@ -1,8 +1,9 @@
 """프로젝트 전역 설정: 경로, 상수, 테이블 정의"""
 from pathlib import Path
+import os
 
 # 프로젝트 루트 (config.py 기준 2단계 상위: src/config.py → financial-agent/)
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get("AGENT_BASE") or Path(__file__).resolve().parents[1]).resolve()
 
 # 데이터 경로
 DATA_DIR = ROOT / "data"
@@ -13,8 +14,7 @@ DICT_DIR = DATA_DIR / "dictionary"      # 개념사전 JSON
 # DuckDB 파일 경로
 DB_PATH = PROCESSED_DIR / "findb.duckdb"
 
-# 데이터 기준일 (스냅샷 추출일)
-DATA_BASE_DATE = "2026-07-11"
+GRAPH_DIR = DATA_DIR / "graph"
 
 # 테이블 정의 (테이블코드)
 TABLES = {
@@ -33,3 +33,16 @@ EXPECTED_ROWS = {
     "etf_overseas": 6037,
     "fund": 23676,
 }
+
+def find_raw_file(code_or_name):
+    exact = RAW_DIR / code_or_name
+    if exact.is_file():
+        return str(exact)
+    token = code_or_name.split("_")[0].lower()
+    candidates = [p for p in RAW_DIR.glob("*.xlsx")
+                  if not p.name.startswith(("~$", "._")) and "schema" not in p.name.lower()
+                  and token in p.name.lower()]
+    candidates.sort(key=lambda p: (not p.name.lower().endswith("_data.xlsx"), len(p.name), p.name))
+    if not candidates:
+        raise FileNotFoundError(f"{RAW_DIR}: {code_or_name} 원본 파일이 없습니다.")
+    return str(candidates[0])

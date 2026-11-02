@@ -7,7 +7,7 @@
    -> [2] 의도추출 (CLOVA -> 의도 JSON)
    -> [3] 쿼리빌더 (의도 -> SQL/SPARQL)
    -> [4] 실행 (DuckDB / rdflib)
-   -> [5] 답변생성 (CLOVA -> 자연어)
+   -> [5] 검증된 조회 결과를 코드로 표시
 """
 
 import json
@@ -98,6 +98,7 @@ class FinancialAgent:
     def _format_table(self, df, scope):
         """DataFrame을 사람이 읽기 쉬운 텍스트로. 컬럼 한글화 + 단위변환."""
         # 컬럼 한글 라벨 + 포맷터
+        import pandas as pd
         col_labels = {
             "product_code": "상품코드", "srfc_irt": "표면금리(%)", "pd_nm": "상품명", "itm_nm": "상품명", "PD_NM": "상품명",
             "cu_fund_mgmt_co": "운용사", "cu_charge_rt": "총보수(%)",
@@ -109,6 +110,10 @@ class FinancialAgent:
             "MAT_DT": "만기일", "bond_credit_grade": "신용등급",
             "CORP_PRETAX_YIELD": "세전수익률(%)", "asset_type_std": "자산군",
         }
+
+        col_labels = {k.lower(): v for k, v in col_labels.items()}
+        col_labels["mat_dt_date"] = "만기일"
+        col_labels["만기일"] = "만기일"
 
         def fmt_aum(v):
             """원 단위 순자산 -> 억원."""
@@ -124,11 +129,14 @@ class FinancialAgent:
         for idx, row in df.iterrows():
             parts = []
             for col in df.columns:
-                label = col_labels.get(col, col)
+                label = col_labels.get(col.lower(), col)
                 val = row[col]
+                if pd.isna(val):
+                    parts.append(f"{label}=정보 없음")
+                    continue
                 if col in ("du_last_aum", "fd_nast_suma", "ISU_BAL_AMT"):
                     val = fmt_aum(val)
-                elif col == "MAT_DT":
+                elif col.lower() == "mat_dt":
                     # 20251106.0 -> 2025-11-06
                     try:
                         s = str(int(float(val)))
@@ -138,25 +146,6 @@ class FinancialAgent:
                 parts.append(f"{label}={val}")
             lines.append(f"{idx+1}. " + ", ".join(parts))
         return "\n".join(lines)
-
-    def get_answer_note(self, intent):
-        """정성표현·투자지역 등 답변에 필요한 안내문구 수집."""
-        notes = []
-        # 정성표현 답변문구
-        for f in intent.get("sql_filters", []):
-            c = self.concepts.get(f["concept"], {})
-            qual = c.get("정성표현", {})
-            for expr, body in qual.items():
-                if "답변문구" in body:
-                    # 실제 적용된 경우만 (간단화: 값 일치 확인 생략)
-                    pass
-        # 투자지역 이머징 등
-        for f in intent.get("sql_filters", []):
-            if f["concept"] == "투자지역":
-                grp = self.concepts["투자지역"].get("그룹", {}).get(f.get("value"), {})
-                if "답변문구" in grp:
-                    notes.append(grp["답변문구"])
-        return " ".join(notes) if notes else None
 
     # =========================================================
     # 전체 실행
@@ -341,7 +330,7 @@ class FinancialAgent:
                 answers.append(f"요청하신 전체 {intent['limit']}개 한도에 맞춰 상품군별 결과를 번갈아 골라 보여드립니다.")
             elif intent.get("limit") is None:
                 answers.append("상품군별로 최대 3개씩 보여드립니다.")
-        if intent.get("purpose") == "group_exposure":
+        if intent.get("purpose") == "group_exposure" and any(p.get("returned_count", 0) for p in results):
             answers.append("같은 그룹 회사가 발행한 채권과 해당 회사들을 구성종목으로 담은 ETF를 찾았습니다. 추가로 매수하면 같은 그룹에 투자하는 금액이 늘어날 수 있는 상품들입니다.")
         for part in results:
             scope = part.get("scope") or intent.get("product_scope")
@@ -376,18 +365,6 @@ class FinancialAgent:
             parts.append(f"[조회 결과]\n{summary}")
         return "\n\n".join(parts) if parts else summary
 
-    def _is_empty_result(self, result):
-        """쿼리 결과가 비어있는지 판별. 의도 파악 성공 + 데이터 없음 구분용."""
-        rtype = result.get("type")
-        if rtype == "table":
-            df = result.get("data")
-            return df is None or len(df) == 0
-        if rtype == "codes":
-            return not result.get("data")
-        if rtype == "intersection":
-            return not result.get("data")
-        return False
-
     def _build_think_trace(self, intent, result):
         steps = list(result.get("trace", []))
         if result.get("status", "ok") != "ok":
@@ -395,38 +372,3 @@ class FinancialAgent:
         elif not result.get("returned_count") and not result.get("has_more"):
             steps.append("실행된 조건의 조회 결과가 0건입니다. 원본 전체에 해당 상품이 없다는 뜻은 아닙니다.")
         return "\n".join(steps)
-
-
-# =============================================================
-# 오프라인 테스트 (CLOVA 없이 게이트+쿼리빌더만)
-# =============================================================
-if __name__ == "__main__":
-    from rdflib import Graph
-    g = Graph()
-    for f in ["ontology.ttl", "out/instances_company.ttl",
-              "out/instances_theme.ttl", "out/instances_group.ttl"]:
-        g.parse(f, format="turtle")
-
-    agent = FinancialAgent(
-        "concepts.json", "unanswerable.json", "intent_prompt.md",
-        graph=g, duckdb_con=None, clova=None,
-    )
-
-    # 게이트 테스트
-    print("=== unanswerable 게이트 ===")
-    for q in ["삼성전자 ETF 구성종목 비중 알려줘",
-              "이 펀드 분배금 얼마야",
-              "반도체 ETF 앞으로 오를까",
-              "위험등급 5 이상 채권"]:
-        blocked, msg = agent.check_unanswerable(q)
-        print(f"  [{'차단' if blocked else '통과'}] {q}")
-        if blocked:
-            print(f"        -> {msg[:40]}...")
-
-    # 쿼리빌더 직접 (CLOVA 없이 의도 수동 주입)
-    print("\n=== 쿼리빌더 (의도 수동) ===")
-    intent = {"product_scope": "bond", "graph_conditions": [],
-              "sql_filters": [{"concept": "위험등급", "operator": "gte", "value": 5}],
-              "sort": None, "limit": 5}
-    r = agent.qb.execute(intent)
-    print("  SQL:", r.get("sql"))

@@ -5,14 +5,14 @@ AI Festival 2026 - 누보
 
 국내채권·국내ETF·해외ETF·공모펀드 4종 마스터 데이터에 대한 자연어 질의응답 AI Agent.
 지식그래프(RDF/SPARQL) + 관계형(DuckDB SQL) 하이브리드 구조로, LLM(HyperCLOVA X)은
-자연어 이해(의도추출·답변생성)만 담당하고 쿼리 생성은 결정론적 코드가 수행하여 환각을 억제한다.
+자연어 이해(의도추출)만 담당하고 쿼리 생성은 결정론적 코드가 수행하여 환각을 억제한다.
 
 ## 시스템 구성
 
 ```
 질문 → [1] unanswerable 게이트 → [2] CLOVA 의도추출(질문→의도 JSON)
      → [3] 쿼리빌더(의도→SQL/SPARQL, 결정론적) → [4] 실행(DuckDB/rdflib)
-     → [5] CLOVA 답변생성 → 응답(JSON)
+     → [5] 코드 기반 결과 표시 → 응답(JSON)
 ```
 
 - 지식그래프: 회사·테마·그룹·보유(Holding) 노드로 다중홉 관계 질의 처리
@@ -117,3 +117,10 @@ fin-013/
     ├── clova_client.py     # HyperCLOVA X 클라이언트
     └── prompts/intent_prompt.md
 ```
+
+### Windows PowerShell 실행
+```powershell
+.\fin\Scripts\python.exe -m uvicorn src.agent.app:app --host 127.0.0.1 --port 8000
+```
+프로젝트 루트에서 실행한다. 데이터 경로는 기본 프로젝트 루트이며 `AGENT_BASE`로 변경할 수 있다.
+만기 잔존기간은 정제된 `mat_dt_date`와 채권 기준일로 조회 시 계산한다.

@@ -60,12 +60,12 @@ def validate_plan(qb, plan):
                     f"'{cond['target']}' 그룹·테마를 저장된 그래프에서 찾지 못했습니다.", "data_missing")
     for filt in plan["sql_filters"]:
         concept = filt["concept"]
-        require(concept in qb.concepts or concept == "상품명", f"정의되지 않은 검색 조건: {concept}")
+        require(concept in qb.concepts or concept in {"상품명", "만기일"}, f"정의되지 않은 검색 조건: {concept}")
         supported = qb.resolve_column(concept, scope) or (concept == "환헤지" and scope in {"fund", "etf_domestic"})
         require(bool(supported), f"{scope_label}에서는 '{concept}' 조건을 처리할 수 없습니다.", "unsupported")
     sort = plan.get("sort")
     if sort:
-        supported = (forward and sort["concept"] == "보유비중") or qb.resolve_column(sort["concept"], scope)
+        supported = (forward and sort["concept"] == "보유비중") or qb.resolve_column(sort["concept"], scope, sort.get("period"))
         require(bool(supported), f"{scope_label}에서는 '{sort['concept']}' 정렬을 지원하지 않습니다.", "unsupported")
         if sort.get("period"):
             require(sort["concept"] == "수익률" and
@@ -78,7 +78,8 @@ def validate_plan(qb, plan):
 
 def verified_weight_metadata(qb):
     """단위 검증은 그래프 파일 지문과 함께 기록해야 재생성 후 잘못 재사용되지 않는다."""
-    metadata = Path(__file__).resolve().parents[2] / "data/graph/holdings_metadata.json"
+    from src.config import GRAPH_DIR
+    metadata = GRAPH_DIR / "holdings_metadata.json"
     if not metadata.exists():
         return None
     record = json.loads(metadata.read_text(encoding="utf-8"))

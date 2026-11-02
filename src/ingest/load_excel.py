@@ -18,34 +18,7 @@ from src.config import (
 )
 
 
-def find_datarows_file(code: str):
-    """RAW_DIR에서 해당 테이블코드의 데이터 엑셀 파일을 찾는다.
-
-    파일명에 테이블코드가 들어있고, 'data'가 포함되며 'schema'가 아닌 파일을 찾는다.
-    - 신규 형식: prbd01n001_data.xlsx
-    - 구 형식:   PRBD01N001_국내채권마스터_20260711_datarows.xlsx
-    둘 다 매칭되도록 대소문자 무시하고 'data' 포함 / 'schema' 제외로 판단.
-    """
-    code_low = code.lower()
-    candidates = []
-    for p in RAW_DIR.glob("*.xlsx"):
-        name = p.name.lower()
-        if name.startswith("~$") or name.startswith("._"):
-            continue  # 임시/메타 파일 제외
-        if code_low in name and "data" in name and "schema" not in name:
-            candidates.append(p)
-
-    if not candidates:
-        raise FileNotFoundError(
-            f"[{code}] 데이터 엑셀을 {RAW_DIR}에서 찾지 못했습니다. "
-            f"(파일명에 '{code}'와 'data'가 포함되어야 함)"
-        )
-    if len(candidates) > 1:
-        # 신규 형식(_data.xlsx)을 우선
-        candidates.sort(key=lambda p: (0 if p.name.lower().endswith("_data.xlsx") else 1,
-                                       len(p.name)))
-        print(f"경고: [{code}] 후보 파일이 여러 개입니다. 사용: {candidates[0].name}")
-    return candidates[0]
+from src.config import find_raw_file as find_datarows_file
 
 
 def load_all():

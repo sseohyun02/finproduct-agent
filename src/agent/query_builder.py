@@ -166,7 +166,11 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         from rdflib.namespace import RDFS
         fin = Namespace("http://mirae-agent.example/ontology#")
         ex = Namespace("http://mirae-agent.example/data#")
-        products = set(self.graph.subjects(fin.hasTheme, ex[f"Theme_{self._uri(cond['target'])}"]))
+        candidates = set(self.graph.subjects(fin.hasTheme, ex[f"Theme_{self._uri(cond['target'])}"]))
+        codes = self.filter_codes_by_scope({str(p).split("Product_", 1)[-1] for p in candidates}, "etf_domestic")
+        products = {p for p in candidates if str(p).split("Product_", 1)[-1] in codes}
+        if any(not list(self.graph.objects(p, fin.holds)) for p in products):
+            raise IntentError("일부 ETF의 구성종목 정보가 없어 전체 공통 종목을 확정할 수 없습니다.", "data_missing")
         if not products:
             return []
         common = set.intersection(*(set(self.graph.objects(p, fin.holds)) for p in products))
@@ -188,31 +192,25 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         정밀 구분은 SQL 결합에서 테이블 IN으로 자동 처리되므로,
         여기선 그래프-only 반환 시의 대략 필터.
         """
-        def kind(code):
-            if re.fullmatch(r"\d{6}", code):
-                return "etf_domestic"
-            if re.fullmatch(r"KR5\w+", code):
-                return "fund"
-            if re.fullmatch(r"KR7\w+", code):
-                return "etf_domestic"
-            # 채권 PD_NO: KR로 시작하되 KR5(펀드)/KR7(ETF)는 위에서 이미 분기됨.
-            # 남은 KR* (KR6/KR3/KR2/KR1/KRC/KRB/KRZ 등) + XS를 채권으로 판정.
-            if re.fullmatch(r"KR\w+", code) or re.fullmatch(r"XS\w+", code):
-                return "bond"
-            if re.fullmatch(r"[A-Z0-9]{2,6}(\.\w)?", code):
-                return "etf_overseas"
-            return "unknown"
-
-        if scope in ("etf", "all"):
-            return codes  # 통칭은 필터 안 함(SQL 결합에서 처리)
-        return {c for c in codes if kind(c) == scope}
+        if self.con is None:
+            raise IntentError("상품군 판별에 필요한 DB가 없습니다.", "data_missing")
+        info = self.table_map[scope]
+        extra = " AND upper(trim(pd_grp_no)) = 'ETF'" if scope == "etf_domestic" else ""
+        valid = {str(r[0]) for r in self.con.execute(
+            f"SELECT {info['code_expr']} FROM {info['table']} WHERE row_valid = true{extra}"
+        ).fetchall()}
+        return set(codes) & valid
 
     # =========================================================
     # 2. SQL 필터/정렬 생성
     # =========================================================
-    def resolve_column(self, concept, scope):
+    def resolve_column(self, concept, scope, period=None):
         """개념 + 상품군 -> DuckDB 컬럼명. concepts.json 참조."""
         c = self.concepts.get(concept, {})
+        if concept == "수익률":
+            return c.get("기간별컬럼", {}).get(period or "1년", {}).get(scope) or (c.get("채권수익률", {}).get("컬럼", {}).get(scope) if period is None else None)
+        if concept == "만기일":
+            return "mat_dt_date" if scope == "bond" else None
 
         # 상품명 컬럼 (브랜드 LIKE 검색용)
         if concept == "상품명":
@@ -224,7 +222,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         if concept == "만기":
             if scope != "bond":
                 return None
-            return "remaining_days"
+            return "date_diff('day', coalesce(try_cast(info_base_dt AS DATE), try_strptime(cast(info_base_dt AS VARCHAR), '%Y%m%d')::DATE), mat_dt_date)"
 
         # 신용등급: 컬럼이 '종류' 안에 중첩됨 (채권 전용)
         if concept == "신용등급":
@@ -272,7 +270,9 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         # 출력 컬럼: 상품군별 핵심만 (SELECT * 지양)
         cols = self.output_columns.get(scope)
         select_cols = [f"{code_expr} AS product_code", *(cols if cols else ["*"])]
-        where = ["row_valid = true"]  # 불량행 제외
+        where = ["row_valid = true"]
+        if scope == "etf_domestic":
+            where.append("upper(trim(pd_grp_no)) = 'ETF'")  # 불량행 제외
 
         # SQL 필터
         for f in intent.get("sql_filters", []):
@@ -313,7 +313,7 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
 
         sort = intent.get("sort")
         if sort:
-            sort_col = self.resolve_column(sort["concept"], scope)
+            sort_col = self.resolve_column(sort["concept"], scope, sort.get("period"))
             if not sort_col or sort.get("order") not in {"asc", "desc"}:
                 raise IntentError("지원하지 않는 정렬 조건입니다.", "unsupported")
             if sort.get("period"):
@@ -372,9 +372,16 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
                 return "bond_credit_grade IN (" + ",".join(literal(x) for x in allowed) + ")" if allowed else "1=0"
             col = "bond_credit_rank"
         if concept == "만기":
-            val = self._maturity_to_days(val)
-            if val is None:
-                raise IntentError("만기 기간을 해석할 수 없습니다.")
+            val = [self._maturity_to_days(v) for v in val] if isinstance(val, list) else self._maturity_to_days(val)
+            if val is None or (isinstance(val, list) and None in val):
+                raise IntentError('만기 기간을 해석할 수 없습니다. 특정 연도·날짜는 concept="만기일", operator="between", value=["YYYY-01-01","YYYY-12-31"]로 지정하고, 잔존기간은 "1년"처럼 단위를 명시하세요.')
+        if concept == "만기일":
+            from datetime import date
+            try:
+                for v in (val if isinstance(val, list) else [val]):
+                    date.fromisoformat(v)
+            except (ValueError, TypeError):
+                raise IntentError("만기일은 YYYY-MM-DD 형식으로 지정해야 합니다.")
         if op in operators:
             if isinstance(val, str) and not re.fullmatch(r"[+-]?\d+(?:\.\d+)?", val.strip()):
                 mapped = self.map_value(concept, scope, val)
@@ -415,11 +422,6 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         if s.isdigit():
             return int(s) * 365  # 순수 숫자는 년으로
         return None
-
-    def _period_column(self, period, scope):
-        """수익률 기간 -> 컬럼."""
-        pc = self.concepts["수익률"].get("기간별컬럼", {})
-        return pc.get(period, {}).get(scope)
 
     # =========================================================
     # 3. 통합 실행
@@ -698,26 +700,3 @@ PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>
         
     def execute(self, intent, temporal_policy=None):
         return execute_intent(self, intent, temporal_policy)
-
-if __name__ == "__main__":
-    # DuckDB 없이 SQL 생성만 테스트
-    qb = QueryBuilder("/home/claude/concepts.json")
-
-    tests = [
-        {"질문": "위험등급 5 이상 채권",
-         "intent": {"product_scope": "bond", "graph_conditions": [],
-                    "sql_filters": [{"concept": "위험등급", "operator": "gte", "value": 5}],
-                    "sort": None, "limit": 10}},
-        {"질문": "미국 투자 보수 낮은 ETF top5",
-         "intent": {"product_scope": "etf_domestic", "graph_conditions": [],
-                    "sql_filters": [{"concept": "투자지역", "operator": "eq", "value": "미국"}],
-                    "sort": {"concept": "총보수", "order": "asc"}, "limit": 5}},
-        {"질문": "만기 임박 국공채",
-         "intent": {"product_scope": "bond", "graph_conditions": [],
-                    "sql_filters": [{"concept": "채권분류", "operator": "eq", "value": "국공채"}],
-                    "sort": {"concept": "만기", "order": "asc"}, "limit": 10}},
-    ]
-    for t in tests:
-        print(f"\n[{t['질문']}]")
-        r = qb.execute(t["intent"])
-        print("  SQL:", r.get("sql"))

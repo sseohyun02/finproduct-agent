@@ -19,6 +19,10 @@ ETF 구성종목(PDF) 수집 스크립트
      KRX_ID=본인아이디
      KRX_PW=본인비밀번호
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.config import RAW_DIR, ROOT
 import os
 import time
 import glob
@@ -28,7 +32,7 @@ from datetime import datetime
 # ── 1. 환경변수(.env) 로드 ──────────────────────────────
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(ROOT / ".env")
 except ImportError:
     print("python-dotenv가 없습니다. pip install python-dotenv 후 다시 실행하세요.")
     raise
@@ -47,11 +51,11 @@ from pykrx import stock
 
 # ── 2. 설정 ────────────────────────────────────────────
 BASE_DATE = "20260710"          # 구성종목 기준일 (확실한 영업일로 지정)
-OUTPUT_FILE = "data/raw/etf_portfolio.xlsx"   # 결과 저장 파일
-FAIL_LOG = "data/raw/etf_portfolio_fail.csv"  # 실패 종목 기록
+OUTPUT_FILE = str(RAW_DIR / "etf_portfolio.xlsx")   # 결과 저장 파일
+FAIL_LOG = str(RAW_DIR / "etf_portfolio_fail.csv")  # 실패 종목 기록
 SLEEP_SEC = 1.5                 # 요청 간 대기(초) - IP 차단 방지
 # 새 파일명(소문자, datarows 없음) 대응: 코드 접두부만으로 매칭
-MASTER_GLOB = "data/raw/**/*ref01n001*.xlsx"
+MASTER_GLOB = str(RAW_DIR / "**/*ref01n001*.xlsx")
 
 
 # ── 3. 우리 데이터에서 국내 ETF 목록 뽑기 ───────────────

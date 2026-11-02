@@ -3,7 +3,7 @@
 `data/dictionary/company_registry.json`이 대표 회사명, 회사 ID, 별칭, 소속 그룹의
 단일 관리 파일이다. 기존 `group_whitelist.json`의 128개 명시적 항목과 신한은행을
 초기값으로 넣었다. 기존 목록의 소속 최신성을 별도 조사한 것은 아니다.
-`group_whitelist.json`과 `issuer_group_rules.json`은 이력 참고용으로 남겨 두었으며
+이전 `group_whitelist.json`과 `issuer_group_rules.json`은 삭제했으며
 현재 그래프 생성 코드에서는 읽지 않는다. 수정은 새 대응표에 한다.
 
 ```json

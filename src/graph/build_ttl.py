@@ -25,6 +25,9 @@ import re
 import glob
 import hashlib
 from pathlib import Path
+import sys
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import openpyxl
 from rdflib import Literal
 
@@ -46,50 +49,13 @@ EX = "http://mirae-agent.example/data#"  # 인스턴스 네임스페이스
 
 # 프로젝트 루트: 이 파일이 src/graph/build_ttl.py에 있다는 전제로 2단계 상위.
 # (fin-013/src/graph/build_ttl.py -> fin-013/)
-ROOT = Path(__file__).resolve().parents[2]
+from src.config import ROOT
 RAW_DIR = ROOT / "data" / "raw"
 GRAPH_DIR = ROOT / "data" / "graph"
 
 
 
-def _col_index(header, name):
-    """컬럼명을 대소문자 무관하게 찾는다. (새 데이터 소문자화 대응)"""
-    low = [str(h).lower() for h in header]
-    return low.index(name.lower())
-
-
-def find_raw_file(code_or_name: str) -> str:
-    """
-    data/raw/에서 파일을 찾는다. 프로젝트 관례(load_excel.py)와 동일하게
-    '테이블코드(PRBD01N001 등)를 파일명에 포함하는 첫 매치'를 사용해
-    실제 파일명이 조금 달라도(예: 날짜 접미사 차이, 대소문자, 접미사 변경) 안전하게 찾는다.
-    확장자가 이미 붙은 정확한 파일명(etf_portfolio.xlsx 등)이면 그대로 사용.
-
-    [2026-08 갱신] 새 파일명(prbd01n001_data.xlsx)은 소문자이고 '_국내채권마스터'가
-    없으므로, 코드 접두부(첫 토큰: PRBD01N001)만 떼어 대소문자 무관으로 매칭한다.
-    """
-    exact = RAW_DIR / code_or_name
-    if exact.exists():
-        return str(exact)
-
-    # 코드 접두부만 사용(예: 'PRBD01N001_국내채권마스터' -> 'prbd01n001')
-    code_token = code_or_name.split("_")[0].lower()
-
-    for p in sorted(RAW_DIR.glob("*.xlsx")):
-        name = p.name.lower()
-        if name.startswith("~$") or name.startswith("._"):
-            continue  # 임시/메타 파일 제외
-        # 정확 파일명(etf_portfolio.xlsx 등) 또는 코드 접두 포함
-        if code_or_name.lower() in name or code_token in name:
-            # schema 파일은 제외(데이터 파일 우선)
-            if "schema" in name:
-                continue
-            return str(p)
-
-    raise FileNotFoundError(
-        f"'{code_or_name}' 관련 파일을 {RAW_DIR}에서 찾지 못했습니다. "
-        f"data/raw/ 폴더에 원본 엑셀이 있는지 확인하세요."
-    )
+from src.config import find_raw_file
 
 
 def load_inputs():

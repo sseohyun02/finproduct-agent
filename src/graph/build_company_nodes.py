@@ -14,8 +14,11 @@ build_group.py가 company_nodes.json을 읽으므로(각 회사의 'norm' 등 �
 """
 import json
 from pathlib import Path
+import sys
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-ROOT = Path(__file__).resolve().parents[2]
+from src.config import ROOT
 PROC_DIR = ROOT / "data" / "processed"
 
 

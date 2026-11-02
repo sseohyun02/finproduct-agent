@@ -20,26 +20,17 @@
 
 import re
 from pathlib import Path
+import sys
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import openpyxl
 
-ROOT = Path(__file__).resolve().parents[2]
+from src.config import ROOT
 RAW_DIR = ROOT / "data" / "raw"
 GRAPH_DIR = ROOT / "data" / "graph"
 
 
-def find_raw_file(code_or_name: str) -> str:
-    """data/raw/에서 코드 접두부(대소문자 무관)로 데이터 파일을 찾는다."""
-    exact = RAW_DIR / code_or_name
-    if exact.exists():
-        return str(exact)
-    code_token = code_or_name.split("_")[0].lower()
-    for p in sorted(RAW_DIR.glob("*.xlsx")):
-        name = p.name.lower()
-        if name.startswith("~$") or name.startswith("._"):
-            continue
-        if (code_or_name.lower() in name or code_token in name) and "schema" not in name:
-            return str(p)
-    raise FileNotFoundError(f"'{code_or_name}' 파일을 {RAW_DIR}에서 찾지 못했습니다.")
+from src.config import find_raw_file
 
 
 def _col_index(header, name):

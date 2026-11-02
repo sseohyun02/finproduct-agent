@@ -152,7 +152,7 @@
 concept는 다음 중에서 선택한다.
 
 위험등급, 총보수, 순자산, 수익률, 자산군, 투자지역,
-통화, 채권분류, 신용등급, 만기, 표면금리, 듀레이션,
+통화, 채권분류, 신용등급, 만기, 만기일, 표면금리, 듀레이션,
 발행사, 상품명, 운용사, 환헤지.
 
 예시:
@@ -382,3 +382,13 @@ start_date와 end_date는 null.
 ### 복수 회사 비중 예시
 질문: "삼성전자와 SK하이닉스를 모두 담고 합산 비중 30% 이하인 ETF 중 총보수가 가장 낮은 상품"
 {"product_scopes":["etf_domestic"],"graph_conditions":[{"relation":"holds","target":"삼성전자","direction":"reverse"},{"relation":"holds","target":"SK하이닉스","direction":"reverse"}],"sql_filters":[],"computed_filters":[{"type":"holding_weight_sum","companies":["삼성전자","SK하이닉스"],"operator":"lte","value":30,"unit":"percent"}],"sort":{"concept":"총보수","order":"asc","period":null},"limit":1,"limit_mode":"per_scope","aggregation":null,"temporal":{"kind":"snapshot","start_date":null,"end_date":null}}
+
+## 만기 조건 계약
+- 특정 연도·월·날짜의 만기는 concept="만기일"을 사용한다.
+- "2027년 만기": {"concept":"만기일","operator":"between","value":["2027-01-01","2027-12-31"]}
+- 잔존기간은 concept="만기"를 사용하고 값을 "1년", "6개월", "30일"처럼 단위와 함께 기록한다.
+- "1~3년 남은": {"concept":"만기","operator":"between","value":["1년","3년"]}
+- 오늘부터의 만기 기간은 current_date로 날짜 범위를 계산해 만기일 조건으로 기록한다. 확정 일정 조회는 scheduled이다.
+
+질문: "2027년에 만기가 돌아오는 채권 중 신용등급이 AA- 이상인 상품 알려줘."
+{"product_scopes":["bond"],"graph_conditions":[],"sql_filters":[{"concept":"만기일","operator":"between","value":["2027-01-01","2027-12-31"]},{"concept":"신용등급","operator":"gte","value":"AA-"}],"computed_filters":[],"sort":null,"limit":null,"limit_mode":"per_scope","aggregation":null,"temporal":{"kind":"scheduled","start_date":null,"end_date":null}}

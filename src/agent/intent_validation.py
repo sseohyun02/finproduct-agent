@@ -1,6 +1,8 @@
 """LLM 출력을 실행 계약으로 변환한다. 미지원 조건을 누락하지 않는다."""
 from copy import deepcopy
 from math import isfinite
+from datetime import date
+import re
 
 
 class IntentError(ValueError):
@@ -81,6 +83,19 @@ def normalize_intent(raw):
         require(isinstance(filt.get("operator"), str) and filt["operator"] in OPERATORS and
                 filt.get("value") is not None, "필터 연산자 또는 값이 잘못되었습니다.")
         value, op = filt["value"], filt["operator"]
+        # 명시적인 날짜 값은 기간으로 해석하지 않고 만기일 계약으로 통일한다.
+        if filt["concept"] == "만기":
+            items = value if isinstance(value, list) else [value]
+            if all(isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v) for v in items):
+                filt["concept"] = "만기일"
+        if filt["concept"] == "만기일":
+            require(op in {"eq", "gte", "lte", "gt", "lt", "between", "in"}, "만기일은 날짜 비교 조건이어야 합니다.")
+            try:
+                for v in (value if isinstance(value, list) else [value]):
+                    date.fromisoformat(v)
+            except (ValueError, TypeError):
+                raise IntentError('만기일은 YYYY-MM-DD 형식이어야 합니다. 특정 연도 만기는 만기일 between 날짜 범위로 다시 해석하세요.')
+
         require(not isinstance(value, (dict, bool)), "필터 값의 형식이 잘못되었습니다.")
         if op in {"between", "in"}:
             require(isinstance(value, list) and bool(value) and (op != "between" or len(value) == 2),
